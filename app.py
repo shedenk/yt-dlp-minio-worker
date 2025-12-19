@@ -1,20 +1,27 @@
-import os, time, json, subprocess, uuid
+import os
+import time
+import uuid
+import subprocess
 import redis
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+# =====================================================
+# BASIC CONFIG
+# =====================================================
 ROLE = os.getenv("ROLE", "api")
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/downloads")
+AUTO_DELETE_LOCAL = os.getenv("AUTO_DELETE_LOCAL", "true").lower() == "true"
+
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 r = redis.from_url(REDIS_URL, decode_responses=True)
 app = FastAPI(title="yt-dlp API")
 
-DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/downloads")
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
-# =========================
-# MinIO (WORKER ONLY)
-# =========================
+# =====================================================
+# MINIO CONFIG (WORKER ONLY, ENV-FRIENDLY)
+# =====================================================
 MINIO_STRICT = os.getenv("MINIO_STRICT", "true").lower() == "true"
 MINIO_PUBLIC_BASE_URL = os.getenv("MINIO_PUBLIC_BASE_URL", "").rstrip("/")
 minio_client = None
@@ -44,7 +51,7 @@ if ROLE == "worker":
             if MINIO_STRICT:
                 raise RuntimeError(msg)
             else:
-                print(f"[WARN] {msg}, upload disabled")
+                print(f"[WARN] {msg} → upload disabled")
         else:
             minio_client = Minio(
                 MINIO_ENDPOINT,
@@ -52,20 +59,24 @@ if ROLE == "worker":
                 secret_key=MINIO_SECRET_KEY,
                 secure=MINIO_SECURE
             )
+            print("[INFO] MinIO client initialized")
 
     except Exception as e:
         if MINIO_STRICT:
             raise
         print(f"[WARN] MinIO disabled: {e}")
 
-# =========================
-# API
-# =========================
+# =====================================================
+# API MODELS
+# =====================================================
 class DownloadReq(BaseModel):
     url: str
-    format: str = "bestvideo+bestaudio/best"
     filename: str | None = None
+    format: str | None = None  # optional override
 
+# =====================================================
+# API ENDPOINTS
+# =====================================================
 @app.get("/health")
 def health():
     return {"ok": True, "role": ROLE}
@@ -73,13 +84,15 @@ def health():
 @app.post("/enqueue")
 def enqueue(req: DownloadReq):
     job_id = str(uuid.uuid4())
+
     r.hset(f"job:{job_id}", mapping={
         "status": "queued",
         "url": req.url,
-        "format": req.format,
-        "filename": req.filename or job_id
+        "filename": req.filename or job_id,
+        "format": req.format or ""
     })
     r.lpush("yt_queue", job_id)
+
     return {"job_id": job_id, "status": "queued"}
 
 @app.get("/status/{job_id}")
@@ -89,9 +102,9 @@ def status(job_id: str):
         raise HTTPException(404, "job not found")
     return data
 
-# =========================
-# WORKER
-# =========================
+# =====================================================
+# WORKER LOGIC
+# =====================================================
 def upload_to_minio(local_path, object_name):
     minio_client.fput_object(
         MINIO_BUCKET,
@@ -103,6 +116,7 @@ def upload_to_minio(local_path, object_name):
 
 def worker():
     print("▶ YT-DLP WORKER RUNNING")
+
     while True:
         job = r.brpop("yt_queue", timeout=5)
         if not job:
@@ -116,14 +130,37 @@ def worker():
         outtmpl = f"{DOWNLOAD_DIR}/{filename}.%(ext)s"
         local_file = f"{DOWNLOAD_DIR}/{filename}.mp4"
 
+        # =================================================
+        # yt-dlp COMMAND (ANTI BOT READY)
+        # =================================================
+        yt_format = data.get("format") or "bv*+ba/b"
+
+        cmd = [
+            "yt-dlp",
+            "--force-ipv4",
+            "--geo-bypass",
+            "--no-progress",
+            "-f", yt_format,
+            "--merge-output-format", "mp4",
+            "-o", outtmpl,
+            data["url"]
+        ]
+
+        # Optional cookies
+        if os.path.exists("/cookies/cookies.txt"):
+            cmd.insert(1, "--cookies")
+            cmd.insert(2, "/cookies/cookies.txt")
+
         try:
-            subprocess.run([
-                "yt-dlp",
-                "-f", data.get("format"),
-                "--merge-output-format", "mp4",
-                "-o", outtmpl,
-                data["url"]
-            ], check=True)
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr[-2000:])
 
             public_url = ""
             if minio_client:
@@ -135,9 +172,8 @@ def worker():
                 "storage": "minio" if minio_client else "local"
             })
 
-            if os.getenv("AUTO_DELETE_LOCAL", "true").lower() == "true":
-                if os.path.exists(local_file):
-                    os.remove(local_file)
+            if AUTO_DELETE_LOCAL and os.path.exists(local_file):
+                os.remove(local_file)
 
         except Exception as e:
             r.hset(f"job:{job_id}", mapping={
@@ -147,5 +183,8 @@ def worker():
 
         time.sleep(1)
 
+# =====================================================
+# START WORKER
+# =====================================================
 if ROLE == "worker":
     worker()

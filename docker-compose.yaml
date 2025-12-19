@@ -17,6 +17,9 @@ services:
     environment:
       ROLE: api
       REDIS_URL: redis://redis:6379/0
+      volumes:
+  - ./cookies:/cookies
+
     networks:
       - internal-net
   yt-dlp-worker:
@@ -28,5 +31,8 @@ services:
       AUTO_DELETE_LOCAL: "true"
       CLEANUP_MAX_AGE: "7200"
       MINIO_STRICT: "true"
+volumes:
+  - ./cookies:/cookies
+
     networks:
       - internal-net
