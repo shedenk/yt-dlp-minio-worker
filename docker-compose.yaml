@@ -7,44 +7,16 @@ services:
 
   yt-dlp-api:
     build: .
-    container_name: yt-dlp-api
     restart: unless-stopped
-    ports:
-      - "8080:8080"
     environment:
       ROLE: api
       REDIS_URL: redis://redis:6379/0
-      DOWNLOAD_DIR: /downloads
-
-      # MINIO (external)
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: videos
-      MINIO_PUBLIC_BASE_URL: https://cdn.domainkamu.com/videos
-    volumes:
-      - ./downloads:/downloads
-    depends_on:
-      - redis
 
   yt-dlp-worker:
     build: .
-    container_name: yt-dlp-worker
     restart: unless-stopped
     environment:
       ROLE: worker
       REDIS_URL: redis://redis:6379/0
-      DOWNLOAD_DIR: /downloads
       AUTO_DELETE_LOCAL: "true"
       CLEANUP_MAX_AGE: "7200"
-
-      # MINIO (external)
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: videos
-      MINIO_PUBLIC_BASE_URL: https://cdn.domainkamu.com/videos
-    volumes:
-      - ./downloads:/downloads
-    depends_on:
-      - redis
