@@ -1,25 +1,23 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
+
+# System deps (ffmpeg untuk merge audio/video)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install ffmpeg (wajib untuk gabung audio+video)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    ffmpeg \
-    curl && \
-    rm -rf /var/lib/apt/lists/*
+# Python deps
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Install dependencies Python
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# App
+COPY app.py /app/app.py
 
-# Copy aplikasi
-COPY . .
+ENV HOST=0.0.0.0
+ENV PORT=8080
 
-# Buat folder untuk cookie
-RUN mkdir -p /app/cookies
-VOLUME ["/app/cookies"]
+EXPOSE 8080
 
-EXPOSE 3000
-
-CMD ["python", "app.py"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
