@@ -5,55 +5,46 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
 
-  minio:
-    image: minio/minio
-    command: server /data --console-address ":9001"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    volumes:
-      - ./minio:/data
-    restart: unless-stopped
-
   yt-dlp-api:
     build: .
+    container_name: yt-dlp-api
+    restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
       ROLE: api
       REDIS_URL: redis://redis:6379/0
       DOWNLOAD_DIR: /downloads
+
+      # MINIO (external)
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: videos
-      MINIO_PUBLIC_BASE_URL: http://localhost:9000/videos
-      AUTO_DELETE_LOCAL: "true"
+      MINIO_PUBLIC_BASE_URL: https://cdn.domainkamu.com/videos
     volumes:
       - ./downloads:/downloads
     depends_on:
       - redis
-      - minio
 
   yt-dlp-worker:
     build: .
+    container_name: yt-dlp-worker
+    restart: unless-stopped
     environment:
       ROLE: worker
       REDIS_URL: redis://redis:6379/0
       DOWNLOAD_DIR: /downloads
+      AUTO_DELETE_LOCAL: "true"
+      CLEANUP_MAX_AGE: "7200"
+
+      # MINIO (external)
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: videos
-      MINIO_PUBLIC_BASE_URL: http://localhost:9000/videos
-      AUTO_DELETE_LOCAL: "true"
-      CLEANUP_MAX_AGE: "7200"   # 2 jam
-
+      MINIO_PUBLIC_BASE_URL: https://cdn.domainkamu.com/videos
     volumes:
       - ./downloads:/downloads
     depends_on:
       - redis
-      - minio
