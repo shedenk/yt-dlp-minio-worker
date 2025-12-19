@@ -1,23 +1,20 @@
 FROM python:3.12-slim
 
-# System deps (ffmpeg untuk merge audio/video)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y \
     ffmpeg \
-    ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+    cron \
+ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Python deps
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# App
-COPY app.py /app/app.py
+COPY app.py cleanup.py ./
 
-ENV HOST=0.0.0.0
-ENV PORT=8080
+# Cron tiap 30 menit
+RUN echo "*/30 * * * * python /app/cleanup.py >> /var/log/cleanup.log 2>&1" > /etc/cron.d/cleanup \
+ && chmod 0644 /etc/cron.d/cleanup \
+ && crontab /etc/cron.d/cleanup
 
-EXPOSE 8080
-
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD cron && python app.py
