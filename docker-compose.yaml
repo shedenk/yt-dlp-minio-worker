@@ -1,9 +1,15 @@
 version: "3.9"
 
+networks:
+  internal-net:
+    driver: bridge
+
 services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    networks:
+      - internal-net
 
   yt-dlp-api:
     build: .
@@ -11,7 +17,8 @@ services:
     environment:
       ROLE: api
       REDIS_URL: redis://redis:6379/0
-      MINIO_SECURE: "false"
+    networks:
+      - internal-net
 
   yt-dlp-worker:
     build: .
@@ -21,5 +28,6 @@ services:
       REDIS_URL: redis://redis:6379/0
       AUTO_DELETE_LOCAL: "true"
       CLEANUP_MAX_AGE: "7200"
-      MINIO_SECURE: "false"
-
+      MINIO_STRICT: "true"
+    networks:
+      - internal-net

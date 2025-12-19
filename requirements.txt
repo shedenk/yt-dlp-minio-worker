@@ -3,4 +3,3 @@ uvicorn[standard]
 yt-dlp
 redis
 minio
-
