@@ -11,6 +11,7 @@ services:
     environment:
       ROLE: api
       REDIS_URL: redis://redis:6379/0
+      MINIO_SECURE: "false"
 
   yt-dlp-worker:
     build: .
@@ -20,3 +21,5 @@ services:
       REDIS_URL: redis://redis:6379/0
       AUTO_DELETE_LOCAL: "true"
       CLEANUP_MAX_AGE: "7200"
+      MINIO_SECURE: "false"
+
