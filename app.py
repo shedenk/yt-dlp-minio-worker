@@ -148,9 +148,9 @@ def worker():
         ]
 
         # Optional cookies
-        if os.path.exists("/cookies/cookies.txt"):
+        if os.path.exists("/cookies"):
             cmd.insert(1, "--cookies")
-            cmd.insert(2, "/cookies/cookies.txt")
+            cmd.insert(2, "/cookies")
 
         try:
             result = subprocess.run(
