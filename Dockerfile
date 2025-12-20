@@ -7,6 +7,9 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     cron \
     ca-certificates \
+    curl \
+ && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+ && apt-get install -y nodejs \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -16,7 +19,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py cleanup.py ./
 
-# cron cleanup (worker only, activated via CMD)
 RUN echo "*/30 * * * * python /app/cleanup.py >> /var/log/cleanup.log 2>&1" > /etc/cron.d/cleanup \
  && chmod 0644 /etc/cron.d/cleanup
 
