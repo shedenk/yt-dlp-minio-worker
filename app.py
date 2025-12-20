@@ -137,6 +137,7 @@ def worker():
 
         cmd = [
             "yt-dlp",
+            "--js-runtimes", "node",  #  WAJIB
             "--force-ipv4",
             "--geo-bypass",
             "--no-progress",
