@@ -11,10 +11,17 @@ from pydantic import BaseModel
 # =====================================================
 ROLE = os.getenv("ROLE", "api")
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
-DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/downloads")
+# match docker-compose default volume path
+DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/data/downloads")
+COOKIES_PATH = os.getenv("COOKIES_PATH", "/data/cookies/cookies.txt")
 AUTO_DELETE_LOCAL = os.getenv("AUTO_DELETE_LOCAL", "true").lower() == "true"
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+# ensure cookies parent dir exists so mounts work cleanly
+try:
+    os.makedirs(os.path.dirname(COOKIES_PATH), exist_ok=True)
+except Exception:
+    pass
 
 r = redis.from_url(REDIS_URL, decode_responses=True)
 app = FastAPI(title="yt-dlp API")
@@ -147,10 +154,10 @@ def worker():
             data["url"]
         ]
 
-        # Optional cookies
-        if os.path.exists("/cookies"):
+        # Optional cookies (use COOKIES_PATH env var)
+        if COOKIES_PATH and os.path.exists(COOKIES_PATH):
             cmd.insert(1, "--cookies")
-            cmd.insert(2, "/cookies")
+            cmd.insert(2, COOKIES_PATH)
 
         try:
             result = subprocess.run(
