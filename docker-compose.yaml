@@ -1,4 +1,4 @@
-version: "3.9"
+version: '3.9'
 
 networks:
   internal-net:
@@ -23,26 +23,38 @@ services:
       - downloads_data:/data/downloads
       - cookies_data:/data/cookies
       - assets_data:/data/assets
-
     networks:
       - internal-net
+
   yt-dlp-worker:
     build: .
     restart: unless-stopped
     environment:
       ROLE: worker
       REDIS_URL: redis://redis:6379/0
-      AUTO_DELETE_LOCAL: "true"
-      CLEANUP_MAX_AGE: "7200"
-      MINIO_STRICT: "true"
+
+      WORKER_CONCURRENCY: '1'
+
+      AUTO_DELETE_LOCAL: 'true'
+      CLEANUP_MAX_AGE: '7200'
+      MINIO_STRICT: 'true'
       DOWNLOAD_DIR: /data/downloads
       COOKIES_PATH: /data/cookies/cookies.txt
+
     volumes:
       - downloads_data:/data/downloads
       - cookies_data:/data/cookies
       - assets_data:/data/assets
+
     networks:
       - internal-net
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1g
+
 volumes:
   downloads_data:
   cookies_data:
