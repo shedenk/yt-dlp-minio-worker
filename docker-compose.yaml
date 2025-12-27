@@ -17,8 +17,12 @@ services:
     environment:
       ROLE: api
       REDIS_URL: redis://redis:6379/0
+      DOWNLOAD_DIR: /data/downloads
+      COOKIES_PATH: /data/cookies/cookies.txt
     volumes:
-      - ./cookies:/cookies
+      - downloads_data:/data/downloads
+      - cookies_data:/data/cookies
+      - assets_data:/data/assets
 
     networks:
       - internal-net
@@ -31,7 +35,15 @@ services:
       AUTO_DELETE_LOCAL: "true"
       CLEANUP_MAX_AGE: "7200"
       MINIO_STRICT: "true"
+      DOWNLOAD_DIR: /data/downloads
+      COOKIES_PATH: /data/cookies/cookies.txt
     volumes:
-      - ./cookies:/cookies
+      - downloads_data:/data/downloads
+      - cookies_data:/data/cookies
+      - assets_data:/data/assets
     networks:
       - internal-net
+volumes:
+  downloads_data:
+  cookies_data:
+  assets_data:
