@@ -7,6 +7,7 @@ networks:
 services:
   redis:
     image: redis:7-alpine
+    container_name: yt-dlp-redis
     restart: unless-stopped
     networks:
       - internal-net
@@ -16,10 +17,15 @@ services:
 
   yt-dlp-api:
     build: .
+    container_name: yt-dlp-api
     restart: unless-stopped
     environment:
-      ROLE: api
+      ROLE: api # API ONLY
       REDIS_URL: redis://redis:6379/0
+
+      # API TIDAK BOLEH PROSES BERAT
+      ENABLE_DOWNLOAD: "false"
+
       DOWNLOAD_DIR: /data/downloads
       COOKIES_PATH: /data/cookies/cookies.txt
     volumes:
@@ -33,27 +39,27 @@ services:
 
   yt-dlp-worker:
     build: .
+    container_name: yt-dlp-worker
     restart: unless-stopped
     environment:
-      ROLE: worker
+      ROLE: worker # WORKER MODE
       REDIS_URL: redis://redis:6379/0
 
-      WORKER_CONCURRENCY: "1"
+      # 🔥 QUEUE MODE
+      WORKER_CONCURRENCY: "1" # 1 job = 1 yt-dlp / ffmpeg
 
       AUTO_DELETE_LOCAL: "true"
       CLEANUP_MAX_AGE: "7200"
       MINIO_STRICT: "true"
+
       DOWNLOAD_DIR: /data/downloads
       COOKIES_PATH: /data/cookies/cookies.txt
-
     volumes:
       - downloads_data:/data/downloads
       - cookies_data:/data/cookies
       - assets_data:/data/assets
-
     networks:
       - internal-net
-
     depends_on:
       - redis
 
