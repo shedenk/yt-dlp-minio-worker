@@ -1,4 +1,4 @@
-version: '3.9'
+version: "3.9"
 
 networks:
   internal-net:
@@ -10,6 +10,9 @@ services:
     restart: unless-stopped
     networks:
       - internal-net
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
 
   yt-dlp-api:
     build: .
@@ -25,6 +28,8 @@ services:
       - assets_data:/data/assets
     networks:
       - internal-net
+    depends_on:
+      - redis
 
   yt-dlp-worker:
     build: .
@@ -33,11 +38,11 @@ services:
       ROLE: worker
       REDIS_URL: redis://redis:6379/0
 
-      WORKER_CONCURRENCY: '1'
+      WORKER_CONCURRENCY: "1"
 
-      AUTO_DELETE_LOCAL: 'true'
-      CLEANUP_MAX_AGE: '7200'
-      MINIO_STRICT: 'true'
+      AUTO_DELETE_LOCAL: "true"
+      CLEANUP_MAX_AGE: "7200"
+      MINIO_STRICT: "true"
       DOWNLOAD_DIR: /data/downloads
       COOKIES_PATH: /data/cookies/cookies.txt
 
@@ -49,13 +54,17 @@ services:
     networks:
       - internal-net
 
+    depends_on:
+      - redis
+
     deploy:
       resources:
         limits:
-          cpus: '1.0'
+          cpus: "1.0"
           memory: 1g
 
 volumes:
   downloads_data:
   cookies_data:
   assets_data:
+  redis-data:
