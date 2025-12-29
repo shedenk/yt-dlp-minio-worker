@@ -2,7 +2,7 @@
 """check_channel.py
 
 Usage: set env REDIS_URL if needed, then run:
-  python check_channel.py "https://www.youtube.com/channel/.../videos"
+python check_channel.py "https://www.youtube.com/channel/.../videos"
 
 This script uses `yt-dlp --flat-playlist --dump-json` to list items in a
 channel's uploads, stores seen video ids in Redis (per-channel set), and
