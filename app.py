@@ -76,6 +76,7 @@ def status(job_id: str):
 def check_channel(req: ChannelCheckReq):
     seen = channel_key(req.channel_url)
     new_jobs = []
+    new_urls = []
 
     for item in run_yt_dl_flat(req.channel_url):
         vid = item.get("id") or item.get("url")
@@ -104,5 +105,6 @@ def check_channel(req: ChannelCheckReq):
         })
         r.lpush("yt_queue", job_id)
         new_jobs.append(job_id)
+        new_urls.append(video_url)
 
-    return {"new_count": len(new_jobs), "job_ids": new_jobs}
+    return {"new_count": len(new_jobs), "job_ids": new_jobs, "video_urls": new_urls}
