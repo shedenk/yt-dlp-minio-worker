@@ -43,6 +43,22 @@ while True:
             "-o", outtmpl,
             data["url"]
         ]
+    elif media == "both":
+        # first download video (mp4), then extract audio to requested format with ffmpeg
+        video_file = f"{DOWNLOAD_DIR}/{filename}.mp4"
+        audio_file = f"{DOWNLOAD_DIR}/{filename}.{audio_format}"
+        video_cmd = [
+            "yt-dlp",
+            "--js-runtimes", "node",
+            "--force-ipv4",
+            "--geo-bypass",
+            "--no-progress",
+            "-f", data.get("format") or "bv*+ba/b",
+            "--merge-output-format", "mp4",
+            "-o", outtmpl,
+            data["url"]
+        ]
+        cmd = None
     else:
         local_file = f"{DOWNLOAD_DIR}/{filename}.mp4"
         cmd = [
@@ -62,16 +78,41 @@ while True:
         cmd.insert(2, COOKIES_PATH)
 
     try:
-        subprocess.check_call(cmd)
-        r.hset(f"job:{job_id}", mapping={
-            "status": "done",
-            "storage": "local",
-            "filename": filename,
-            "ext": os.path.splitext(local_file)[1].lstrip('.')
-        })
+        # run commands depending on requested media
+        if media == "both":
+            subprocess.check_call(video_cmd)
+            # extract audio using ffmpeg
+            try:
+                subprocess.check_call(["ffmpeg", "-y", "-i", video_file, audio_file])
+            except Exception:
+                # fallback: try yt-dlp audio extraction if ffmpeg fails
+                subprocess.check_call([
+                    "yt-dlp", "-x", "--audio-format", audio_format, "-o", outtmpl, data["url"]
+                ])
 
-        if AUTO_DELETE_LOCAL and os.path.exists(local_file):
-            os.remove(local_file)
+            r.hset(f"job:{job_id}", mapping={
+                "status": "done",
+                "storage": "local",
+                "video_file": video_file,
+                "audio_file": audio_file
+            })
+
+            if AUTO_DELETE_LOCAL:
+                if os.path.exists(video_file):
+                    os.remove(video_file)
+                if os.path.exists(audio_file):
+                    os.remove(audio_file)
+        else:
+            subprocess.check_call(cmd)
+            r.hset(f"job:{job_id}", mapping={
+                "status": "done",
+                "storage": "local",
+                "filename": filename,
+                "ext": os.path.splitext(local_file)[1].lstrip('.')
+            })
+
+            if AUTO_DELETE_LOCAL and os.path.exists(local_file):
+                os.remove(local_file)
 
     except Exception as e:
         r.hset(f"job:{job_id}", mapping={
