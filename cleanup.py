@@ -1,8 +1,8 @@
 import os, time
 
-DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/downloads")
+DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/data/downloads")
 MAX_AGE = int(os.getenv("CLEANUP_MAX_AGE", "7200"))
-EXTS = (".mp4", ".mkv", ".webm", ".mp3", ".m4a")
+EXTS = (".mp4", ".mkv", ".webm", ".mp3", ".m4a", ".wav")
 
 now = time.time()
 deleted = 0

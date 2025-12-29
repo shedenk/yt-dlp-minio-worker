@@ -12,6 +12,8 @@ class DownloadReq(BaseModel):
     url: str
     filename: str | None = None
     format: str | None = None
+    media: str | None = "video"  # "video" or "audio"
+    audio_format: str | None = "wav"  # when media==audio
 
 @app.get("/health")
 def health():
@@ -25,7 +27,9 @@ def enqueue(req: DownloadReq):
         "status": "queued",
         "url": req.url,
         "filename": req.filename or job_id,
-        "format": req.format or ""
+        "format": req.format or "",
+        "media": req.media or "video",
+        "audio_format": req.audio_format or "wav"
     })
     r.lpush("yt_queue", job_id)
 
