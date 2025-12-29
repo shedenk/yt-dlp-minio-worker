@@ -1,5 +1,5 @@
 # app.py
-import os, uuid, redis
+import os, uuid, redis, subprocess, json, hashlib
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
@@ -14,6 +14,35 @@ class DownloadReq(BaseModel):
     format: str | None = None
     media: str | None = "video"  # "video" or "audio"
     audio_format: str | None = "wav"  # when media==audio
+
+
+class ChannelCheckReq(BaseModel):
+    channel_url: str
+    media: str | None = "video"
+    audio_format: str | None = "wav"
+
+
+def channel_key(url: str) -> str:
+    h = hashlib.sha1(url.encode("utf-8")).hexdigest()
+    return f"seen:channel:{h}"
+
+
+def run_yt_dl_flat(channel_url: str):
+    cmd = [
+        "yt-dlp",
+        "--flat-playlist",
+        "--dump-json",
+        channel_url,
+    ]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    for line in proc.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            yield json.loads(line)
+        except Exception:
+            continue
 
 @app.get("/health")
 def health():
@@ -41,3 +70,39 @@ def status(job_id: str):
     if not data:
         raise HTTPException(404, "job not found")
     return data
+
+
+@app.post("/check_channel")
+def check_channel(req: ChannelCheckReq):
+    seen = channel_key(req.channel_url)
+    new_jobs = []
+
+    for item in run_yt_dl_flat(req.channel_url):
+        vid = item.get("id") or item.get("url")
+        if not vid:
+            continue
+
+        # normalize video URL
+        if len(vid) <= 32 and not vid.startswith("http"):
+            video_url = f"https://www.youtube.com/watch?v={vid}"
+        else:
+            video_url = item.get("url") or vid
+
+        if r.sismember(seen, vid):
+            continue
+
+        r.sadd(seen, vid)
+
+        job_id = str(uuid.uuid4())
+        r.hset(f"job:{job_id}", mapping={
+            "status": "queued",
+            "url": video_url,
+            "filename": vid,
+            "format": "",
+            "media": req.media or "video",
+            "audio_format": req.audio_format or "wav",
+        })
+        r.lpush("yt_queue", job_id)
+        new_jobs.append(job_id)
+
+    return {"new_count": len(new_jobs), "job_ids": new_jobs}
