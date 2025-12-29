@@ -1,5 +1,6 @@
 # worker.py
 import os, time, subprocess, redis
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/data/downloads")
@@ -74,11 +75,19 @@ while True:
         ]
 
     if COOKIES_PATH and os.path.exists(COOKIES_PATH):
-        cmd.insert(1, "--cookies")
-        cmd.insert(2, COOKIES_PATH)
+        # insert cookies into the correct command (video_cmd for media==both)
+        if media == "both":
+            if 'video_cmd' in locals() and video_cmd is not None:
+                video_cmd.insert(1, "--cookies")
+                video_cmd.insert(2, COOKIES_PATH)
+        else:
+            if cmd is not None:
+                cmd.insert(1, "--cookies")
+                cmd.insert(2, COOKIES_PATH)
 
     try:
         # run commands depending on requested media
+        # ensure Redis is available when we update status later
         if media == "both":
             subprocess.check_call(video_cmd)
             # extract audio using ffmpeg
@@ -115,9 +124,23 @@ while True:
                 os.remove(local_file)
 
     except Exception as e:
-        r.hset(f"job:{job_id}", mapping={
-            "status": "error",
-            "error": str(e)
-        })
+        # try to update job error status, reconnecting to Redis if needed
+        try:
+            r.hset(f"job:{job_id}", mapping={
+                "status": "error",
+                "error": str(e)
+            })
+        except RedisConnectionError:
+            # attempt to recreate redis client once, then set error
+            try:
+                r = redis.from_url(REDIS_URL, decode_responses=True)
+                r.hset(f"job:{job_id}", mapping={
+                    "status": "error",
+                    "error": str(e)
+                })
+            except Exception:
+                # give up on updating status
+                pass
 
+    # small sleep to avoid tight loop; handle Redis connection issues around brpop
     time.sleep(1)
