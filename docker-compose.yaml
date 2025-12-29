@@ -8,6 +8,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: yt-dlp-redis
+    environment:
+      TZ: Asia/Jakarta
     restart: unless-stopped
     networks:
       - internal-net
@@ -20,7 +22,7 @@ services:
     container_name: yt-dlp-api
     restart: unless-stopped
     environment:
-      ROLE: api # API ONLY
+      TZ: Asia/Jakarta
       REDIS_URL: redis://redis:6379/0
 
       # API TIDAK BOLEH PROSES BERAT
@@ -28,6 +30,7 @@ services:
 
       DOWNLOAD_DIR: /data/downloads
       COOKIES_PATH: /data/cookies/cookies.txt
+
     volumes:
       - downloads_data:/data/downloads
       - cookies_data:/data/cookies
@@ -42,6 +45,7 @@ services:
     container_name: yt-dlp-worker
     restart: unless-stopped
     environment:
+      TZ: Asia/Jakarta
       ROLE: worker # WORKER MODE
       REDIS_URL: redis://redis:6379/0
 
