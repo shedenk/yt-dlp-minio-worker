@@ -2,6 +2,31 @@
 import os, time, subprocess, redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 
+minio_client = None
+MINIO_BUCKET = None
+MINIO_PUBLIC_BASE_URL = os.getenv("MINIO_PUBLIC_BASE_URL", "").rstrip('/')
+try:
+    from minio import Minio
+    MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
+    MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
+    MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
+    MINIO_BUCKET = os.getenv("MINIO_BUCKET")
+    MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
+
+    if MINIO_ENDPOINT and MINIO_ACCESS_KEY and MINIO_SECRET_KEY and MINIO_BUCKET:
+        minio_client = Minio(
+            MINIO_ENDPOINT,
+            access_key=MINIO_ACCESS_KEY,
+            secret_key=MINIO_SECRET_KEY,
+            secure=MINIO_SECURE,
+        )
+        print("[INFO] MinIO client initialized")
+    else:
+        print("[INFO] MinIO not configured; uploads disabled")
+except Exception as e:
+    minio_client = None
+    print(f"[WARN] MinIO client init failed: {e}")
+
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/data/downloads")
 COOKIES_PATH = os.getenv("COOKIES_PATH", "/data/cookies/cookies.txt")
@@ -36,6 +61,7 @@ while True:
         cmd = [
             "yt-dlp",
             "--js-runtimes", "node",
+            "--remote-components", "ejs:github",
             "--force-ipv4",
             "--geo-bypass",
             "--no-progress",
@@ -51,6 +77,7 @@ while True:
         video_cmd = [
             "yt-dlp",
             "--js-runtimes", "node",
+            "--remote-components", "ejs:github",
             "--force-ipv4",
             "--geo-bypass",
             "--no-progress",
@@ -65,6 +92,7 @@ while True:
         cmd = [
             "yt-dlp",
             "--js-runtimes", "node",
+            "--remote-components", "ejs:github",
             "--force-ipv4",
             "--geo-bypass",
             "--no-progress",
@@ -99,11 +127,30 @@ while True:
                     "yt-dlp", "-x", "--audio-format", audio_format, "-o", outtmpl, data["url"]
                 ])
 
+            public_video = ""
+            public_audio = ""
+            if minio_client:
+                try:
+                    obj_name_v = os.path.basename(video_file)
+                    minio_client.fput_object(MINIO_BUCKET, obj_name_v, video_file)
+                    public_video = f"{MINIO_PUBLIC_BASE_URL}/{obj_name_v}" if MINIO_PUBLIC_BASE_URL else ""
+                except Exception as e:
+                    print(f"[WARN] upload video to minio failed: {e}")
+
+                try:
+                    obj_name_a = os.path.basename(audio_file)
+                    minio_client.fput_object(MINIO_BUCKET, obj_name_a, audio_file)
+                    public_audio = f"{MINIO_PUBLIC_BASE_URL}/{obj_name_a}" if MINIO_PUBLIC_BASE_URL else ""
+                except Exception as e:
+                    print(f"[WARN] upload audio to minio failed: {e}")
+
             r.hset(f"job:{job_id}", mapping={
                 "status": "done",
-                "storage": "local",
+                "storage": "minio" if minio_client else "local",
                 "video_file": video_file,
-                "audio_file": audio_file
+                "audio_file": audio_file,
+                "public_video": public_video,
+                "public_audio": public_audio,
             })
 
             if AUTO_DELETE_LOCAL:
@@ -113,11 +160,21 @@ while True:
                     os.remove(audio_file)
         else:
             subprocess.check_call(cmd)
+            public_url = ""
+            if minio_client:
+                try:
+                    obj_name = os.path.basename(local_file)
+                    minio_client.fput_object(MINIO_BUCKET, obj_name, local_file)
+                    public_url = f"{MINIO_PUBLIC_BASE_URL}/{obj_name}" if MINIO_PUBLIC_BASE_URL else ""
+                except Exception as e:
+                    print(f"[WARN] upload to minio failed: {e}")
+
             r.hset(f"job:{job_id}", mapping={
                 "status": "done",
-                "storage": "local",
+                "storage": "minio" if minio_client else "local",
                 "filename": filename,
-                "ext": os.path.splitext(local_file)[1].lstrip('.')
+                "ext": os.path.splitext(local_file)[1].lstrip('.'),
+                "public_url": public_url,
             })
 
             if AUTO_DELETE_LOCAL and os.path.exists(local_file):
