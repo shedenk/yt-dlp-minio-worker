@@ -65,6 +65,7 @@ def enqueue_video(video_obj, seen_set):
 
     # create a job (include upload_date if available)
     upload_date = video_obj.get('upload_date') or video_obj.get('timestamp')
+    title = video_obj.get('title') or ""
     job_id = str(uuid.uuid4())
     mapping = {
         "status": "queued",
@@ -73,6 +74,7 @@ def enqueue_video(video_obj, seen_set):
         "format": "",
         "media": "video",
         "upload_date": upload_date,
+        "title": title,
     }
     clean_mapping = {k: str(v) for k, v in mapping.items() if v is not None}
     r.hset(f"job:{job_id}", mapping=clean_mapping)

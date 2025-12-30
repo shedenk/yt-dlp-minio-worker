@@ -161,6 +161,7 @@ def check_channel(req: ChannelCheckReq):
         r.sadd(seen, vid)
 
         upload_date = item.get("upload_date") or item.get("timestamp")
+        title = item.get("title") or ""
         job_id = str(uuid.uuid4())
         mapping = {
             "status": "queued",
@@ -170,13 +171,14 @@ def check_channel(req: ChannelCheckReq):
             "media": req.media or "video",
             "audio_format": req.audio_format or "wav",
             "upload_date": upload_date,
+            "title": title,
         }
         # remove None values and stringify everything for Redis
         clean_mapping = {k: str(v) for k, v in mapping.items() if v is not None}
         r.hset(f"job:{job_id}", mapping=clean_mapping)
         r.lpush("yt_queue", job_id)
         new_jobs.append(job_id)
-        new_urls.append({"url": video_url, "upload_date": upload_date})
+        new_urls.append({"url": video_url, "upload_date": upload_date, "title": title})
 
         # stop when we've enqueued the requested number of new videos
         if req.limit and len(new_jobs) >= int(req.limit):
