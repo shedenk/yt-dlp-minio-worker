@@ -1,10 +1,12 @@
 # app.py
 import os, uuid, redis, subprocess, json, hashlib
+from typing import Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 r = redis.from_url(REDIS_URL, decode_responses=True)
+ROLE = os.getenv("ROLE", "api")
 
 app = FastAPI(title="yt-dlp API")
 
@@ -21,6 +23,8 @@ class ChannelCheckReq(BaseModel):
     media: str | None = "video"
     audio_format: str | None = "wav"
     limit: int | None = 1
+    wait: bool | None = False
+    wait_timeout: int | None = 60
 
 
 def channel_key(url: str) -> str:
@@ -48,6 +52,67 @@ def run_yt_dl_flat(channel_url: str):
 @app.get("/health")
 def health():
     return {"ok": True, "role": "api"}
+
+
+@app.get("/service_status")
+def service_status():
+    """Return basic service health: Redis connectivity, queue length, MinIO status."""
+    status: dict[str, Any] = {"ok": True, "role": ROLE}
+
+    # Redis check
+    try:
+        pong = r.ping()
+        qlen = r.llen("yt_queue")
+        status["redis"] = {"ok": bool(pong), "queue_length": int(qlen)}
+    except Exception as e:
+        status["ok"] = False
+        status["redis"] = {"ok": False, "error": str(e), "queue_length": None}
+
+    # MinIO quick check if env present
+    minio_info = {"configured": False, "ok": None}
+    try:
+        from minio import Minio
+        MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
+        MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
+        MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
+        MINIO_BUCKET = os.getenv("MINIO_BUCKET")
+        MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
+
+        if MINIO_ENDPOINT and MINIO_ACCESS_KEY and MINIO_SECRET_KEY and MINIO_BUCKET:
+            minio_info["configured"] = True
+            try:
+                client = Minio(MINIO_ENDPOINT, access_key=MINIO_ACCESS_KEY, secret_key=MINIO_SECRET_KEY, secure=MINIO_SECURE)
+                exists = client.bucket_exists(MINIO_BUCKET)
+                minio_info["ok"] = bool(exists)
+            except Exception as e:
+                minio_info["ok"] = False
+                minio_info["error"] = str(e)
+    except Exception:
+        # minio package not installed or not configured
+        pass
+
+    status["minio"] = minio_info
+
+    return status
+
+
+@app.get("/jobs")
+def list_jobs(limit: int = 20):
+    """List up to `limit` job entries currently in the `yt_queue` (most recent first)."""
+    try:
+        ids = r.lrange("yt_queue", 0, max(0, int(limit) - 1))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"redis error: {e}")
+
+    jobs = []
+    for jid in ids:
+        data = r.hgetall(f"job:{jid}") or {}
+        # ensure job_id present
+        entry = {"job_id": jid}
+        entry.update(data)
+        jobs.append(entry)
+
+    return {"count": len(jobs), "jobs": jobs}
 
 @app.post("/enqueue")
 def enqueue(req: DownloadReq):
@@ -117,4 +182,29 @@ def check_channel(req: ChannelCheckReq):
         if req.limit and len(new_jobs) >= int(req.limit):
             break
 
-    return {"new_count": len(new_jobs), "job_ids": new_jobs, "video_urls": new_urls}
+    result = {"new_count": len(new_jobs), "job_ids": new_jobs, "video_urls": new_urls}
+
+    if req.wait and new_jobs:
+        # poll job statuses until done or timeout
+        timeout = int(req.wait_timeout or 60)
+        end = time.time() + timeout
+        statuses = {}
+        while time.time() < end:
+            all_done = True
+            for jid in new_jobs:
+                data = r.hgetall(f"job:{jid}") or {}
+                statuses[jid] = data
+                st = data.get("status")
+                if st not in ("done", "error"):
+                    all_done = False
+            if all_done:
+                break
+            time.sleep(1)
+
+        # final fetch
+        for jid in new_jobs:
+            statuses[jid] = r.hgetall(f"job:{jid}") or {}
+
+        result["job_statuses"] = statuses
+
+    return result
