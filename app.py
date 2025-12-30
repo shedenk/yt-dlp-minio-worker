@@ -97,7 +97,7 @@ def check_channel(req: ChannelCheckReq):
 
         upload_date = item.get("upload_date") or item.get("timestamp")
         job_id = str(uuid.uuid4())
-        r.hset(f"job:{job_id}", mapping={
+        mapping = {
             "status": "queued",
             "url": video_url,
             "filename": vid,
@@ -105,7 +105,10 @@ def check_channel(req: ChannelCheckReq):
             "media": req.media or "video",
             "audio_format": req.audio_format or "wav",
             "upload_date": upload_date,
-        })
+        }
+        # remove None values and stringify everything for Redis
+        clean_mapping = {k: str(v) for k, v in mapping.items() if v is not None}
+        r.hset(f"job:{job_id}", mapping=clean_mapping)
         r.lpush("yt_queue", job_id)
         new_jobs.append(job_id)
         new_urls.append({"url": video_url, "upload_date": upload_date})
