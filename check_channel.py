@@ -63,24 +63,31 @@ def enqueue_video(video_obj, seen_set):
     # mark seen
     r.sadd(seen_set, vid)
 
-    # create a job
+    # create a job (include upload_date if available)
+    upload_date = video_obj.get('upload_date') or video_obj.get('timestamp')
     job_id = str(uuid.uuid4())
     r.hset(f"job:{job_id}", mapping={
         "status": "queued",
         "url": video_url,
         "filename": vid,
         "format": "",
-        "media": "video"
+        "media": "video",
+        "upload_date": upload_date,
     })
     r.lpush("yt_queue", job_id)
     return True
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python check_channel.py <channel_videos_url>")
+        print("Usage: python check_channel.py <channel_videos_url> [limit]")
         sys.exit(2)
 
     channel_url = sys.argv[1]
+    try:
+        limit = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+    except Exception:
+        limit = 1
+
     seen = channel_key(channel_url)
 
     new_count = 0
@@ -88,6 +95,8 @@ def main():
         try:
             if enqueue_video(item, seen):
                 new_count += 1
+                if new_count >= limit:
+                    break
         except Exception as e:
             print(f"[WARN] enqueue failed: {e}")
 

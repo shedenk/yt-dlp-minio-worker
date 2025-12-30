@@ -20,6 +20,7 @@ class ChannelCheckReq(BaseModel):
     channel_url: str
     media: str | None = "video"
     audio_format: str | None = "wav"
+    limit: int | None = 1
 
 
 def channel_key(url: str) -> str:
@@ -94,6 +95,7 @@ def check_channel(req: ChannelCheckReq):
 
         r.sadd(seen, vid)
 
+        upload_date = item.get("upload_date") or item.get("timestamp")
         job_id = str(uuid.uuid4())
         r.hset(f"job:{job_id}", mapping={
             "status": "queued",
@@ -102,9 +104,14 @@ def check_channel(req: ChannelCheckReq):
             "format": "",
             "media": req.media or "video",
             "audio_format": req.audio_format or "wav",
+            "upload_date": upload_date,
         })
         r.lpush("yt_queue", job_id)
         new_jobs.append(job_id)
-        new_urls.append(video_url)
+        new_urls.append({"url": video_url, "upload_date": upload_date})
+
+        # stop when we've enqueued the requested number of new videos
+        if req.limit and len(new_jobs) >= int(req.limit):
+            break
 
     return {"new_count": len(new_jobs), "job_ids": new_jobs, "video_urls": new_urls}
