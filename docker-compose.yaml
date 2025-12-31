@@ -37,7 +37,6 @@ services:
       - internal-net
     depends_on:
       - redis
-    entrypoint: /bin/sh -c "rm -rf /data/downloads/* 2>/dev/null; python app.py"
 
   yt-dlp-worker:
     build: .
@@ -45,6 +44,7 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Jakarta
+      REDIS_URL: redis://redis:6379/0
       ROLE: worker
 
       WORKER_CONCURRENCY: "1"
@@ -63,7 +63,6 @@ services:
       - internal-net
     depends_on:
       - redis
-    entrypoint: /bin/sh -c "rm -rf /data/downloads/* 2>/dev/null; python worker.py"
 
 volumes:
   downloads_data:

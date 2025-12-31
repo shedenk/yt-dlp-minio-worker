@@ -21,6 +21,7 @@ RUN echo "*/30 * * * * python /app/cleanup.py >> /var/log/cleanup.log 2>&1" > /e
 
 EXPOSE 8080
 CMD ["bash", "-c", "\
+rm -rf /data/downloads/* 2>/dev/null; \
 if [ \"$ROLE\" = \"worker\" ]; then \
   echo 'Starting YT-DLP WORKER'; \
   python /app/worker.py; \
