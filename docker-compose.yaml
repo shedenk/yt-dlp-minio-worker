@@ -13,9 +13,7 @@ services:
     restart: unless-stopped
     networks:
       - internal-net
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly no
 
   yt-dlp-api:
     build: .
@@ -24,9 +22,8 @@ services:
     environment:
       TZ: Asia/Jakarta
       REDIS_URL: redis://redis:6379/0
-      ROLE: api # WORKER MODE
+      ROLE: api
 
-      # API TIDAK BOLEH PROSES BERAT
       ENABLE_DOWNLOAD: "false"
 
       DOWNLOAD_DIR: /data/downloads
@@ -40,6 +37,7 @@ services:
       - internal-net
     depends_on:
       - redis
+    entrypoint: /bin/sh -c "rm -rf /data/downloads/* 2>/dev/null; python app.py"
 
   yt-dlp-worker:
     build: .
@@ -47,11 +45,9 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Jakarta
-      ROLE: worker # WORKER MODE
-      REDIS_URL: redis://redis:6379/0
+      ROLE: worker
 
-      # 🔥 QUEUE MODE
-      WORKER_CONCURRENCY: "1" # 1 job = 1 yt-dlp / ffmpeg
+      WORKER_CONCURRENCY: "1"
 
       AUTO_DELETE_LOCAL: "true"
       CLEANUP_MAX_AGE: "7200"
@@ -67,9 +63,13 @@ services:
       - internal-net
     depends_on:
       - redis
+    entrypoint: /bin/sh -c "rm -rf /data/downloads/* 2>/dev/null; python worker.py"
 
 volumes:
   downloads_data:
+    driver: local
   cookies_data:
+    driver: local
   assets_data:
-  redis-data:
+    driver: local
+  # redis-data removed - will be ephemeral (auto-clean on restart)
