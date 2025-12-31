@@ -1,6 +1,8 @@
 # worker.py
-import os, time, subprocess, redis
+import os, time, subprocess, redis, signal, multiprocessing
 from redis.exceptions import ConnectionError as RedisConnectionError
+from typing import Optional
+from contextlib import contextmanager
 
 minio_client = None
 MINIO_BUCKET = None
@@ -32,6 +34,12 @@ DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/data/downloads")
 COOKIES_PATH = os.getenv("COOKIES_PATH", "/data/cookies/cookies.txt")
 AUTO_DELETE_LOCAL = os.getenv("AUTO_DELETE_LOCAL", "true").lower() == "true"
 
+# New configuration for retry and concurrency
+WORKER_CONCURRENCY = int(os.getenv("WORKER_CONCURRENCY", "3"))
+MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
+JOB_TIMEOUT = int(os.getenv("JOB_TIMEOUT", "3600"))  # 1 hour default
+RETRY_BACKOFF_BASE = int(os.getenv("RETRY_BACKOFF_BASE", "60"))  # 60 seconds
+
 r = redis.from_url(REDIS_URL, decode_responses=True)
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 # ensure cookies parent dir exists (mount-friendly)
@@ -46,18 +54,109 @@ if os.path.exists(COOKIES_PATH):
 else:
     print(f"[WARN] Cookies file not found at {COOKIES_PATH} - authenticated downloads may fail")
 
-print("▶ YT-DLP WORKER READY")
+
+class TimeoutException(Exception):
+    """Raised when a job exceeds its timeout"""
+    pass
 
 
-while True:
-    job = r.brpop("yt_queue", timeout=5)
-    if not job:
-        continue
+@contextmanager
+def timeout_handler(seconds: int):
+    """Context manager for timeout protection using signal.alarm (Unix only)"""
+    def _timeout_handler(signum, frame):
+        raise TimeoutException(f"Job exceeded timeout of {seconds} seconds")
+    
+    # Set the signal handler and alarm
+    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+    signal.alarm(seconds)
+    
+    try:
+        yield
+    finally:
+        # Disable the alarm and restore old handler
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
 
-    job_id = job[1]
-    data = r.hgetall(f"job:{job_id}")
-    r.hset(f"job:{job_id}", "status", "processing")
 
+def get_redis_connection():
+    """Get a fresh Redis connection (for multiprocessing safety)"""
+    return redis.from_url(REDIS_URL, decode_responses=True)
+
+
+def process_single_job(job_id: str) -> bool:
+    """
+    Process a single job with retry logic and timeout protection.
+    Returns True if successful, False otherwise.
+    """
+    r_local = get_redis_connection()
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            # Update retry count in Redis
+            r_local.hset(f"job:{job_id}", "retry_count", attempt)
+            r_local.hset(f"job:{job_id}", "status", "processing")
+            
+            print(f"[INFO] Processing job {job_id} (attempt {attempt + 1}/{MAX_RETRIES})")
+            
+            # Process job with timeout protection
+            with timeout_handler(JOB_TIMEOUT):
+                success = _execute_download(job_id, r_local)
+                
+            if success:
+                print(f"[SUCCESS] Job {job_id} completed successfully")
+                return True
+                
+        except TimeoutException as e:
+            error_msg = f"Timeout after {JOB_TIMEOUT}s (attempt {attempt + 1}/{MAX_RETRIES})"
+            print(f"[WARN] Job {job_id}: {error_msg}")
+            r_local.hset(f"job:{job_id}", "last_error", str(e))
+            
+            if attempt < MAX_RETRIES - 1:
+                # Exponential backoff: 60s, 120s, 240s, etc.
+                backoff = min(300, RETRY_BACKOFF_BASE * (2 ** attempt))
+                print(f"[INFO] Retrying job {job_id} in {backoff}s...")
+                time.sleep(backoff)
+            else:
+                # Final attempt failed
+                r_local.hset(f"job:{job_id}", mapping={
+                    "status": "error",
+                    "error": f"Failed after {MAX_RETRIES} attempts: {error_msg}"
+                })
+                return False
+                
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[ERROR] Job {job_id}: {error_msg} (attempt {attempt + 1}/{MAX_RETRIES})")
+            r_local.hset(f"job:{job_id}", "last_error", error_msg)
+            
+            if attempt < MAX_RETRIES - 1:
+                backoff = min(300, RETRY_BACKOFF_BASE * (2 ** attempt))
+                print(f"[INFO] Retrying job {job_id} in {backoff}s...")
+                time.sleep(backoff)
+            else:
+                # Final attempt failed
+                try:
+                    r_local.hset(f"job:{job_id}", mapping={
+                        "status": "error",
+                        "error": f"Failed after {MAX_RETRIES} attempts: {error_msg}"
+                    })
+                except Exception:
+                    pass
+                return False
+    
+    return False
+
+
+def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
+    """
+    Execute the actual download logic for a job.
+    Returns True if successful, False otherwise.
+    """
+    data = r_local.hgetall(f"job:{job_id}")
+    if not data:
+        print(f"[ERROR] Job {job_id} not found in Redis")
+        return False
+    
     filename = data.get("filename", job_id)
     media = data.get("media", "video")
     audio_format = data.get("audio_format", "wav")
@@ -120,91 +219,137 @@ while True:
                 cmd.insert(1, "--cookies")
                 cmd.insert(2, COOKIES_PATH)
 
-    try:
-        # run commands depending on requested media
-        # ensure Redis is available when we update status later
-        if media == "both":
-            subprocess.check_call(video_cmd)
-            # extract audio using ffmpeg
-            try:
-                subprocess.check_call(["ffmpeg", "-y", "-i", video_file, audio_file])
-            except Exception:
-                # fallback: try yt-dlp audio extraction if ffmpeg fails
-                subprocess.check_call([
-                    "yt-dlp", "-x", "--audio-format", audio_format, "-o", outtmpl, data["url"]
-                ])
-
-            public_video = ""
-            public_audio = ""
-            if minio_client:
-                try:
-                    obj_name_v = os.path.basename(video_file)
-                    minio_client.fput_object(MINIO_BUCKET, obj_name_v, video_file)
-                    public_video = f"{MINIO_PUBLIC_BASE_URL}/{obj_name_v}" if MINIO_PUBLIC_BASE_URL else ""
-                except Exception as e:
-                    print(f"[WARN] upload video to minio failed: {e}")
-
-                try:
-                    obj_name_a = os.path.basename(audio_file)
-                    minio_client.fput_object(MINIO_BUCKET, obj_name_a, audio_file)
-                    public_audio = f"{MINIO_PUBLIC_BASE_URL}/{obj_name_a}" if MINIO_PUBLIC_BASE_URL else ""
-                except Exception as e:
-                    print(f"[WARN] upload audio to minio failed: {e}")
-
-            r.hset(f"job:{job_id}", mapping={
-                "status": "done",
-                "storage": "minio" if minio_client else "local",
-                "video_file": video_file,
-                "audio_file": audio_file,
-                "public_video": public_video,
-                "public_audio": public_audio,
-            })
-
-            if AUTO_DELETE_LOCAL:
-                if os.path.exists(video_file):
-                    os.remove(video_file)
-                if os.path.exists(audio_file):
-                    os.remove(audio_file)
-        else:
-            subprocess.check_call(cmd)
-            public_url = ""
-            if minio_client:
-                try:
-                    obj_name = os.path.basename(local_file)
-                    minio_client.fput_object(MINIO_BUCKET, obj_name, local_file)
-                    public_url = f"{MINIO_PUBLIC_BASE_URL}/{obj_name}" if MINIO_PUBLIC_BASE_URL else ""
-                except Exception as e:
-                    print(f"[WARN] upload to minio failed: {e}")
-
-            r.hset(f"job:{job_id}", mapping={
-                "status": "done",
-                "storage": "minio" if minio_client else "local",
-                "filename": filename,
-                "ext": os.path.splitext(local_file)[1].lstrip('.'),
-                "public_url": public_url,
-            })
-
-            if AUTO_DELETE_LOCAL and os.path.exists(local_file):
-                os.remove(local_file)
-
-    except Exception as e:
-        # try to update job error status, reconnecting to Redis if needed
+    # run commands depending on requested media
+    if media == "both":
+        subprocess.check_call(video_cmd)
+        # extract audio using ffmpeg
         try:
-            r.hset(f"job:{job_id}", mapping={
-                "status": "error",
-                "error": str(e)
-            })
-        except RedisConnectionError:
-            # attempt to recreate redis client once, then set error
-            try:
-                r = redis.from_url(REDIS_URL, decode_responses=True)
-                r.hset(f"job:{job_id}", mapping={
-                    "status": "error",
-                    "error": str(e)
-                })
-            except Exception:
-                # give up on updating status
-                pass
+            subprocess.check_call(["ffmpeg", "-y", "-i", video_file, audio_file])
+        except Exception:
+            # fallback: try yt-dlp audio extraction if ffmpeg fails
+            subprocess.check_call([
+                "yt-dlp", "-x", "--audio-format", audio_format, "-o", outtmpl, data["url"]
+            ])
 
-    # small sleep to avoid tight loop; handle Redis connection issues around brpop
-    time.sleep(1)
+        public_video = ""
+        public_audio = ""
+        if minio_client:
+            try:
+                obj_name_v = os.path.basename(video_file)
+                minio_client.fput_object(MINIO_BUCKET, obj_name_v, video_file)
+                public_video = f"{MINIO_PUBLIC_BASE_URL}/{obj_name_v}" if MINIO_PUBLIC_BASE_URL else ""
+            except Exception as e:
+                print(f"[WARN] upload video to minio failed: {e}")
+
+            try:
+                obj_name_a = os.path.basename(audio_file)
+                minio_client.fput_object(MINIO_BUCKET, obj_name_a, audio_file)
+                public_audio = f"{MINIO_PUBLIC_BASE_URL}/{obj_name_a}" if MINIO_PUBLIC_BASE_URL else ""
+            except Exception as e:
+                print(f"[WARN] upload audio to minio failed: {e}")
+
+        r_local.hset(f"job:{job_id}", mapping={
+            "status": "done",
+            "storage": "minio" if minio_client else "local",
+            "video_file": video_file,
+            "audio_file": audio_file,
+            "public_video": public_video,
+            "public_audio": public_audio,
+        })
+
+        if AUTO_DELETE_LOCAL:
+            if os.path.exists(video_file):
+                os.remove(video_file)
+            if os.path.exists(audio_file):
+                os.remove(audio_file)
+    else:
+        subprocess.check_call(cmd)
+        public_url = ""
+        if minio_client:
+            try:
+                obj_name = os.path.basename(local_file)
+                minio_client.fput_object(MINIO_BUCKET, obj_name, local_file)
+                public_url = f"{MINIO_PUBLIC_BASE_URL}/{obj_name}" if MINIO_PUBLIC_BASE_URL else ""
+            except Exception as e:
+                print(f"[WARN] upload to minio failed: {e}")
+
+        r_local.hset(f"job:{job_id}", mapping={
+            "status": "done",
+            "storage": "minio" if minio_client else "local",
+            "filename": filename,
+            "ext": os.path.splitext(local_file)[1].lstrip('.'),
+            "public_url": public_url,
+        })
+
+        if AUTO_DELETE_LOCAL and os.path.exists(local_file):
+            os.remove(local_file)
+    
+    return True
+
+
+def worker_process():
+    """
+    Worker process that continuously polls Redis queue for jobs.
+    This runs in a separate process when using multiprocessing.
+    """
+    r_local = get_redis_connection()
+    print(f"[INFO] Worker process {os.getpid()} started")
+    
+    while True:
+        try:
+            job = r_local.brpop("yt_queue", timeout=5)
+            if not job:
+                continue
+
+            job_id = job[1]
+            print(f"[INFO] Worker {os.getpid()} picked up job {job_id}")
+            
+            process_single_job(job_id)
+            
+        except KeyboardInterrupt:
+            print(f"[INFO] Worker {os.getpid()} shutting down...")
+            break
+        except Exception as e:
+            print(f"[ERROR] Worker {os.getpid()} encountered error: {e}")
+            time.sleep(1)
+
+
+def main():
+    """Main entry point for the worker"""
+    print(f"▶ YT-DLP WORKER READY")
+    print(f"[CONFIG] Concurrency: {WORKER_CONCURRENCY}")
+    print(f"[CONFIG] Max Retries: {MAX_RETRIES}")
+    print(f"[CONFIG] Job Timeout: {JOB_TIMEOUT}s")
+    print(f"[CONFIG] Retry Backoff Base: {RETRY_BACKOFF_BASE}s")
+    
+    if WORKER_CONCURRENCY == 1:
+        # Single worker mode (backward compatible)
+        print("[INFO] Running in single-worker mode")
+        worker_process()
+    else:
+        # Multi-worker mode with multiprocessing
+        print(f"[INFO] Starting {WORKER_CONCURRENCY} worker processes")
+        processes = []
+        
+        try:
+            for i in range(WORKER_CONCURRENCY):
+                p = multiprocessing.Process(target=worker_process, name=f"Worker-{i+1}")
+                p.start()
+                processes.append(p)
+                print(f"[INFO] Started worker process {p.pid}")
+            
+            # Wait for all processes
+            for p in processes:
+                p.join()
+                
+        except KeyboardInterrupt:
+            print("\n[INFO] Shutting down workers...")
+            for p in processes:
+                p.terminate()
+            for p in processes:
+                p.join()
+            print("[INFO] All workers stopped")
+
+
+if __name__ == "__main__":
+    main()

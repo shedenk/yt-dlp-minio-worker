@@ -7,7 +7,7 @@ uploads and enqueue them.
 **Structure**
 
 - `app.py`: FastAPI application exposing `/enqueue`, `/status/{job_id}`, and `/check_channel` endpoints.
-- `worker.py`: background worker that pops jobs from Redis (`yt_queue`) and runs `yt-dlp` (and `ffmpeg` for audio extraction).
+- `worker.py`: background worker with **retry mechanism**, **multiprocessing concurrency**, and **timeout protection** that pops jobs from Redis (`yt_queue`) and runs `yt-dlp` (and `ffmpeg` for audio extraction).
 - `check_channel.py`: standalone script to scan a YouTube channel (`--flat-playlist --dump-json`) and enqueue unseen videos.
 - `cleanup.py`: periodic cleanup of old files in the download directory.
 - `Dockerfile`, `docker-compose.yaml`: container configuration (includes `ffmpeg` and `nodejs` for yt-dlp JS runtime).
@@ -18,6 +18,14 @@ uploads and enqueue them.
 - POST `/enqueue` → creates a Redis job entry and pushes its `job_id` to `yt_queue`.
 - `worker.py` (ROLE=worker) consumes `yt_queue`, downloads video and/or extracts audio, then updates job status in Redis.
 - POST `/check_channel` → runs `yt-dlp --flat-playlist --dump-json` for the given channel, records seen videos in Redis, enqueues new ones, and returns the new job ids and URLs.
+
+**Worker Features**
+
+- **Retry Mechanism**: Automatically retries failed jobs up to 3 times with exponential backoff (60s, 120s, 240s)
+- **Concurrency**: Process multiple jobs in parallel (default: 3 workers) using multiprocessing
+- **Timeout Protection**: Automatically kills jobs that exceed timeout (default: 1 hour) and retries them
+- **Progress Tracking**: Tracks retry attempts and errors in Redis for debugging
+- **Graceful Shutdown**: Handles SIGTERM/SIGINT properly to finish ongoing downloads
 
 **API Reference**
 
@@ -144,6 +152,24 @@ docker compose up -d --build
 
 ```bash
 docker compose run --rm yt-dlp-api python check_channel.py "https://www.youtube.com/channel/UC.../videos"
+```
+
+**Configuration**
+
+The worker can be configured via environment variables in `docker-compose.yaml`:
+
+- `WORKER_CONCURRENCY`: Number of parallel workers (default: 3)
+- `MAX_RETRIES`: Maximum retry attempts per job (default: 3)
+- `JOB_TIMEOUT`: Job timeout in seconds (default: 3600 = 1 hour)
+- `RETRY_BACKOFF_BASE`: Base delay for exponential backoff (default: 60 seconds)
+- `AUTO_DELETE_LOCAL`: Delete local files after upload (default: true)
+
+Example for high-volume workloads:
+```yaml
+environment:
+  WORKER_CONCURRENCY: "5"
+  MAX_RETRIES: "5"
+  JOB_TIMEOUT: "7200"  # 2 hours for very large files
 ```
 
 **Notes & Tips**

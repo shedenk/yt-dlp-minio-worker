@@ -54,7 +54,10 @@ services:
       REDIS_URL: redis://redis:6379/0
       ROLE: worker
 
-      WORKER_CONCURRENCY: "1"
+      WORKER_CONCURRENCY: "3"
+      MAX_RETRIES: "3"
+      JOB_TIMEOUT: "3600"
+      RETRY_BACKOFF_BASE: "60"
 
       AUTO_DELETE_LOCAL: "true"
       CLEANUP_MAX_AGE: "7200"
