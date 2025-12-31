@@ -157,3 +157,5 @@ docker compose run --rm yt-dlp-api python check_channel.py "https://www.youtube.
 For more details see `app.py`, `worker.py`, and `check_channel.py`.
 
 # yt-dlp-minio-worker
+
+copy cookies.txt ke folder  86d2e1b448a1
