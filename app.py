@@ -1,14 +1,21 @@
 # app.py
 import os, uuid, redis, subprocess, json, hashlib
 from typing import Any
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 r = redis.from_url(REDIS_URL, decode_responses=True)
 ROLE = os.getenv("ROLE", "api")
 
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="yt-dlp API")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 
 class DownloadReq(BaseModel):
     url: str
@@ -116,7 +123,8 @@ def list_jobs(limit: int = 20):
     return {"count": len(jobs), "jobs": jobs}
 
 @app.post("/enqueue")
-def enqueue(req: DownloadReq):
+@limiter.limit("10/minute")
+def enqueue(request: Request, req: DownloadReq):
     job_id = str(uuid.uuid4())
 
     r.hset(f"job:{job_id}", mapping={
@@ -131,6 +139,7 @@ def enqueue(req: DownloadReq):
 
     return {"job_id": job_id, "status": "queued"}
 
+
 @app.get("/status/{job_id}")
 def status(job_id: str):
     data = r.hgetall(f"job:{job_id}")
@@ -140,8 +149,10 @@ def status(job_id: str):
 
 
 @app.post("/check_channel")
-def check_channel(req: ChannelCheckReq):
+@limiter.limit("5/minute")
+def check_channel(request: Request, req: ChannelCheckReq):
     import time
+
     
     seen = channel_key(req.channel_url)
     new_jobs = []

@@ -156,6 +156,6 @@ docker compose run --rm yt-dlp-api python check_channel.py "https://www.youtube.
 
 For more details see `app.py`, `worker.py`, and `check_channel.py`.
 
-# yt-dlp-minio-worker
+**Cookies Setup**
 
-copy cookies.txt ke folder  86d2e1b448a1
+To use cookies for authenticated downloads, copy your `cookies.txt` file to the cookies volume. The file will be automatically mounted at `/data/cookies/cookies.txt` inside the container.

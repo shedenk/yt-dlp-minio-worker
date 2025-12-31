@@ -40,7 +40,14 @@ try:
 except Exception:
     pass
 
+# Log cookies file status
+if os.path.exists(COOKIES_PATH):
+    print(f"[INFO] Cookies file found at {COOKIES_PATH}")
+else:
+    print(f"[WARN] Cookies file not found at {COOKIES_PATH} - authenticated downloads may fail")
+
 print("▶ YT-DLP WORKER READY")
+
 
 while True:
     job = r.brpop("yt_queue", timeout=5)
