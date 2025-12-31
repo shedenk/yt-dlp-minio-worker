@@ -13,7 +13,7 @@ services:
     restart: unless-stopped
     networks:
       - internal-net
-    command: redis-server --appendonly no
+    command: redis-server --requirepass your-redis-password --appendonly no
 
   yt-dlp-api:
     build: .
@@ -21,7 +21,7 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Jakarta
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://:your-redis-password@redis:6379/0
       ROLE: api
 
       ENABLE_DOWNLOAD: "false"
@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Jakarta
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://:your-redis-password@redis:6379/0
       ROLE: worker
 
       WORKER_CONCURRENCY: "3"
