@@ -23,6 +23,7 @@ class ChannelCheckReq(BaseModel):
     media: str | None = "video"
     audio_format: str | None = "wav"
     limit: int | None = 1
+    track: bool | None = False  # set to True to enqueue videos for download
     wait: bool | None = False
     wait_timeout: int | None = 60
 
@@ -140,6 +141,8 @@ def status(job_id: str):
 
 @app.post("/check_channel")
 def check_channel(req: ChannelCheckReq):
+    import time
+    
     seen = channel_key(req.channel_url)
     new_jobs = []
     new_urls = []
@@ -155,38 +158,43 @@ def check_channel(req: ChannelCheckReq):
         else:
             video_url = item.get("url") or vid
 
-        if r.sismember(seen, vid):
+        # if tracking, check if already seen
+        if req.track and r.sismember(seen, vid):
             continue
-
-        r.sadd(seen, vid)
 
         upload_date = item.get("upload_date") or item.get("timestamp")
         title = item.get("title") or ""
-        job_id = str(uuid.uuid4())
-        mapping = {
-            "status": "queued",
-            "url": video_url,
-            "filename": vid,
-            "format": "",
-            "media": req.media or "video",
-            "audio_format": req.audio_format or "wav",
-            "upload_date": upload_date,
-            "title": title,
-        }
-        # remove None values and stringify everything for Redis
-        clean_mapping = {k: str(v) for k, v in mapping.items() if v is not None}
-        r.hset(f"job:{job_id}", mapping=clean_mapping)
-        r.lpush("yt_queue", job_id)
-        new_jobs.append(job_id)
+        
+        # add to results regardless of tracking
         new_urls.append({"url": video_url, "upload_date": upload_date, "title": title})
 
-        # stop when we've enqueued the requested number of new videos
-        if req.limit and len(new_jobs) >= int(req.limit):
+        # only enqueue if track=True
+        if req.track:
+            r.sadd(seen, vid)
+            job_id = str(uuid.uuid4())
+            mapping = {
+                "status": "queued",
+                "url": video_url,
+                "filename": vid,
+                "format": "",
+                "media": req.media or "video",
+                "audio_format": req.audio_format or "wav",
+                "upload_date": upload_date,
+                "title": title,
+            }
+            # remove None values and stringify everything for Redis
+            clean_mapping = {k: str(v) for k, v in mapping.items() if v is not None}
+            r.hset(f"job:{job_id}", mapping=clean_mapping)
+            r.lpush("yt_queue", job_id)
+            new_jobs.append(job_id)
+
+        # stop when we've collected the requested number of videos
+        if req.limit and len(new_urls) >= int(req.limit):
             break
 
-    result = {"new_count": len(new_jobs), "job_ids": new_jobs, "video_urls": new_urls}
+    result = {"new_count": len(new_urls), "job_ids": new_jobs, "video_urls": new_urls}
 
-    if req.wait and new_jobs:
+    if req.track and req.wait and new_jobs:
         # poll job statuses until done or timeout
         timeout = int(req.wait_timeout or 60)
         end = time.time() + timeout
