@@ -281,12 +281,18 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
 
         # Subtitle handling for 'both' case
         subtitles_map = {}
+        local_subtitles_map = {}
         if include_subs:
             try:
                 for f in os.listdir(DOWNLOAD_DIR):
                     if f.startswith(filename) and f.endswith(".srt"):
                         local_sub_path = f"{DOWNLOAD_DIR}/{f}"
                         public_sub_url = ""
+                        
+                        # Store local path before potential deletion
+                        # (Key can be filename or lang code if parsed, but filename is unique)
+                        local_subtitles_map[f] = local_sub_path
+
                         if minio_client:
                             try:
                                 minio_client.fput_object(MINIO_BUCKET, f, local_sub_path)
@@ -307,7 +313,8 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "audio_file": audio_file,
             "public_video": public_video,
             "public_audio": public_audio,
-            "subtitles": json.dumps(subtitles_map)
+            "public_subtitles": json.dumps(subtitles_map),
+            "subtitles_file": json.dumps(local_subtitles_map)
         })
 
         if AUTO_DELETE_LOCAL:
@@ -329,12 +336,15 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
 
 
         subtitles_map = {}
+        local_subtitles_map = {}
         if include_subs:
             try:
                 for f in os.listdir(DOWNLOAD_DIR):
                     if f.startswith(filename) and f.endswith(".srt"):
                         local_sub_path = f"{DOWNLOAD_DIR}/{f}"
                         public_sub_url = ""
+                        local_subtitles_map[f] = local_sub_path
+
                         if minio_client:
                             try:
                                 minio_client.fput_object(MINIO_BUCKET, f, local_sub_path)
@@ -354,7 +364,8 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "filename": filename,
             "ext": os.path.splitext(local_file)[1].lstrip('.'),
             "public_url": public_url,
-            "subtitles": json.dumps(subtitles_map)
+            "public_subtitles": json.dumps(subtitles_map),
+            "subtitles_file": json.dumps(local_subtitles_map)
         })
 
         if AUTO_DELETE_LOCAL and os.path.exists(local_file):
