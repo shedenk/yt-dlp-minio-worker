@@ -156,6 +156,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
     if not data:
         print(f"[ERROR] Job {job_id} not found in Redis")
         return False
+    print(f"[DEBUG] Job data: {data}")
     
     filename = data.get("filename", job_id)
     media = data.get("media", "video")
