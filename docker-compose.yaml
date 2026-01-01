@@ -73,7 +73,6 @@ services:
       MINIO_PUBLIC_BASE_URL: ${MINIO_PUBLIC_BASE_URL}
       MINIO_SECURE: ${MINIO_SECURE}
     volumes:
-      - ./worker.py:/app/worker.py
       - downloads_data:/data/downloads
       - cookies_data:/data/cookies
       - assets_data:/data/assets
