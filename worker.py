@@ -212,6 +212,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         ]
 
     if include_subs:
+        print(f"[DEBUG] Subtitles requested. Languages: {sub_langs}")
         subs_flags = [
             "--write-subs",
             "--write-auto-subs",
@@ -284,7 +285,10 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         local_subtitles_map = {}
         if include_subs:
             try:
-                for f in os.listdir(DOWNLOAD_DIR):
+                print(f"[DEBUG] Scanning subs in {DOWNLOAD_DIR} for {filename}")
+                all_files = os.listdir(DOWNLOAD_DIR)
+                print(f"[DEBUG] Found files: {all_files}")
+                for f in all_files:
                     if f.startswith(filename) and f.endswith(".srt"):
                         local_sub_path = f"{DOWNLOAD_DIR}/{f}"
                         public_sub_url = ""
@@ -339,7 +343,10 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         local_subtitles_map = {}
         if include_subs:
             try:
-                for f in os.listdir(DOWNLOAD_DIR):
+                print(f"[DEBUG] Scanning subs in {DOWNLOAD_DIR} for {filename}")
+                all_files = os.listdir(DOWNLOAD_DIR)
+                print(f"[DEBUG] Found files: {all_files}")
+                for f in all_files:
                     if f.startswith(filename) and f.endswith(".srt"):
                         local_sub_path = f"{DOWNLOAD_DIR}/{f}"
                         public_sub_url = ""
