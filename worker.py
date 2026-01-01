@@ -1,5 +1,17 @@
 # worker.py
 import os, time, subprocess, redis, signal, multiprocessing, json
+try:
+    import whisper
+    WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "base")
+    print(f"[INFO] Loading Whisper model: {WHISPER_MODEL_NAME}...")
+    whisper_model = whisper.load_model(WHISPER_MODEL_NAME)
+    print(f"[INFO] Whisper model {WHISPER_MODEL_NAME} loaded")
+except ImportError:
+    whisper_model = None
+    print("[WARN] whisper package not found; transcription disabled")
+except Exception as e:
+    whisper_model = None
+    print(f"[ERROR] Failed to load Whisper model: {e}")
 from redis.exceptions import ConnectionError as RedisConnectionError
 from typing import Optional
 from contextlib import contextmanager
@@ -83,6 +95,54 @@ def get_redis_connection():
     return redis.from_url(REDIS_URL, decode_responses=True)
 
 
+def _format_timestamp(seconds: float) -> str:
+    """Format seconds into SRT timestamp format: HH:MM:SS,mmm"""
+    td = time.gmtime(seconds)
+    ms = int((seconds % 1) * 1000)
+    return f"{time.strftime('%H:%M:%S', td)},{ms:03d}"
+
+
+def _to_srt(segments) -> str:
+    """Convert Whisper segments list to SRT string."""
+    srt = []
+    for i, seg in enumerate(segments, 1):
+        start = _format_timestamp(seg["start"])
+        end = _format_timestamp(seg["end"])
+        text = seg["text"].strip()
+        srt.append(f"{i}\n{start} --> {end}\n{text}\n")
+    return "\n".join(srt)
+
+
+def _transcribe_audio(audio_path: str) -> Optional[str]:
+    """Transcribe audio file using Whisper and return content in SRT format."""
+    if not whisper_model or not os.path.exists(audio_path):
+        return None
+    try:
+        print(f"[INFO] Transcribing {audio_path}...")
+        result = whisper_model.transcribe(audio_path)
+        segments = result.get("segments", [])
+        if not segments and result.get("text"):
+            # Fallback for models that might not return segments or if segments is empty
+            return result["text"].strip()
+        return _to_srt(segments)
+    except Exception as e:
+        print(f"[ERROR] Transcription failed: {e}")
+        return None
+
+
+def _upload_file_to_minio(file_path: str, bucket_name: str) -> str:
+    """Upload a file to MinIO and return its public URL."""
+    if not minio_client or not os.path.exists(file_path):
+        return ""
+    try:
+        obj_name = os.path.basename(file_path)
+        minio_client.fput_object(bucket_name, obj_name, file_path)
+        return f"{MINIO_PUBLIC_BASE_URL}/{obj_name}" if MINIO_PUBLIC_BASE_URL else ""
+    except Exception as e:
+        print(f"[WARN] Upload to MinIO failed for {file_path}: {e}")
+        return ""
+
+
 def process_single_job(job_id: str) -> bool:
     """
     Process a single job with retry logic and timeout protection.
@@ -163,6 +223,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
     audio_format = data.get("audio_format", "mp3")
     include_subs = data.get("include_subs", "false").lower() == "true"
     sub_langs = data.get("sub_langs", "all")
+    should_transcribe = data.get("transcribe", "false").lower() == "true"
     outtmpl = f"{DOWNLOAD_DIR}/{filename}.%(ext)s"
 
     if media == "audio":
@@ -311,6 +372,17 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             except Exception as e:
                 print(f"[WARN] Error handling subtitles: {e}")
 
+        # Transcription handling for 'both'
+        public_transcript = ""
+        local_transcript_path = ""
+        if should_transcribe and os.path.exists(audio_file):
+            text = _transcribe_audio(audio_file)
+            if text:
+                local_transcript_path = f"{DOWNLOAD_DIR}/{filename}.srt"
+                with open(local_transcript_path, "w", encoding="utf-8") as f:
+                    f.write(text)
+                public_transcript = _upload_file_to_minio(local_transcript_path, MINIO_BUCKET)
+
         r_local.hset(f"job:{job_id}", mapping={
             "status": "done",
             "storage": "minio" if minio_client else "local",
@@ -319,14 +391,15 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "public_video": public_video,
             "public_audio": public_audio,
             "public_subtitles": json.dumps(subtitles_map),
-            "subtitles_file": json.dumps(local_subtitles_map)
+            "subtitles_file": json.dumps(local_subtitles_map),
+            "public_transcript": public_transcript,
+            "transcript_file": local_transcript_path
         })
 
         if AUTO_DELETE_LOCAL:
-            if os.path.exists(video_file):
-                os.remove(video_file)
-            if os.path.exists(audio_file):
-                os.remove(audio_file)
+            for f in [video_file, audio_file, local_transcript_path]:
+                if f and os.path.exists(f):
+                    os.remove(f)
     else:
         subprocess.check_call(cmd)
         public_url = ""
@@ -366,6 +439,33 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             except Exception as e:
                 print(f"[WARN] Error handling subtitles: {e}")
 
+        # Transcription handling for single 'media' (video or audio)
+        public_transcript = ""
+        local_transcript_path = ""
+        if should_transcribe:
+            transcript_input = local_file
+            temp_audio = ""
+            if media == "video":
+                # Need to extract audio temporarily for transcription
+                temp_audio = f"{DOWNLOAD_DIR}/{filename}_temp.wav"
+                try:
+                    subprocess.check_call(["ffmpeg", "-y", "-i", local_file, "-ar", "16000", "-ac", "1", temp_audio])
+                    transcript_input = temp_audio
+                except Exception as e:
+                    print(f"[ERROR] Failed to extract temp audio for transcription: {e}")
+                    transcript_input = None
+
+            if transcript_input and os.path.exists(transcript_input):
+                text = _transcribe_audio(transcript_input)
+                if text:
+                    local_transcript_path = f"{DOWNLOAD_DIR}/{filename}.srt"
+                    with open(local_transcript_path, "w", encoding="utf-8") as f:
+                        f.write(text)
+                    public_transcript = _upload_file_to_minio(local_transcript_path, MINIO_BUCKET)
+
+            if temp_audio and os.path.exists(temp_audio):
+                os.remove(temp_audio)
+
         r_local.hset(f"job:{job_id}", mapping={
             "status": "done",
             "storage": "minio" if minio_client else "local",
@@ -373,11 +473,15 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "ext": os.path.splitext(local_file)[1].lstrip('.'),
             "public_url": public_url,
             "public_subtitles": json.dumps(subtitles_map),
-            "subtitles_file": json.dumps(local_subtitles_map)
+            "subtitles_file": json.dumps(local_subtitles_map),
+            "public_transcript": public_transcript,
+            "transcript_file": local_transcript_path
         })
 
-        if AUTO_DELETE_LOCAL and os.path.exists(local_file):
-            os.remove(local_file)
+        if AUTO_DELETE_LOCAL:
+            for f in [local_file, local_transcript_path]:
+                if f and os.path.exists(f):
+                    os.remove(f)
     
     return True
 

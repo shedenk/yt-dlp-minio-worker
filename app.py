@@ -23,6 +23,7 @@ class DownloadReq(BaseModel):
     format: str | None = None
     media: str | None = "video"  # "video" or "audio"
     audio_format: str | None = "wav"  # when media==audio
+    transcribe: bool | None = False
 
 
 class ChannelCheckReq(BaseModel):
@@ -33,6 +34,7 @@ class ChannelCheckReq(BaseModel):
     track: bool | None = False  # set to True to enqueue videos for download
     wait: bool | None = False
     wait_timeout: int | None = 60
+    transcribe: bool | None = False
 
 
 def channel_key(url: str) -> str:
@@ -133,7 +135,8 @@ def enqueue(request: Request, req: DownloadReq):
         "filename": req.filename or job_id,
         "format": req.format or "",
         "media": req.media or "video",
-        "audio_format": req.audio_format or "wav"
+        "audio_format": req.audio_format or "wav",
+        "transcribe": "true" if req.transcribe else "false"
     })
     r.lpush("yt_queue", job_id)
 
@@ -190,6 +193,7 @@ def check_channel(request: Request, req: ChannelCheckReq):
                 "format": "",
                 "media": req.media or "video",
                 "audio_format": req.audio_format or "wav",
+                "transcribe": "true" if req.transcribe else "false",
                 "upload_date": upload_date,
                 "title": title,
             }

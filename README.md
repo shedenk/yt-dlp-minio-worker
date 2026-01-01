@@ -7,7 +7,7 @@ uploads and enqueue them.
 **Structure**
 
 - `app.py`: FastAPI application exposing `/enqueue`, `/status/{job_id}`, and `/check_channel` endpoints.
-- `worker.py`: background worker with **retry mechanism**, **multiprocessing concurrency**, and **timeout protection** that pops jobs from Redis (`yt_queue`) and runs `yt-dlp` (and `ffmpeg` for audio extraction).
+- `worker.py`: background worker with **retry mechanism**, **multiprocessing concurrency**, and **timeout protection** that pops jobs from Redis (`yt_queue`) and runs `yt-dlp`, `ffmpeg` (for audio extraction), and **OpenAI Whisper** (for transcription).
 - `check_channel.py`: standalone script to scan a YouTube channel (`--flat-playlist --dump-json`) and enqueue unseen videos.
 - `cleanup.py`: periodic cleanup of old files in the download directory.
 - `Dockerfile`, `docker-compose.yaml`: container configuration (includes `ffmpeg` and `nodejs` for yt-dlp JS runtime).
@@ -16,7 +16,7 @@ uploads and enqueue them.
 **How it works (quick)**
 
 - POST `/enqueue` → creates a Redis job entry and pushes its `job_id` to `yt_queue`.
-- `worker.py` (ROLE=worker) consumes `yt_queue`, downloads video and/or extracts audio, then updates job status in Redis.
+- `worker.py` (ROLE=worker) consumes `yt_queue`, downloads video and/or extracts audio, performs transcription if requested, then updates job status in Redis.
 - POST `/check_channel` → runs `yt-dlp --flat-playlist --dump-json` for the given channel, records seen videos in Redis, enqueues new ones, and returns the new job ids and URLs.
 
 **Worker Features**
@@ -40,7 +40,8 @@ uploads and enqueue them.
   "filename": "optional-filename",
   "format": "optional-yt-dlp-format",
   "media": "video",
-  "audio_format": "wav"
+  "audio_format": "wav",
+  "transcribe": false
 }
 ```
 
@@ -48,6 +49,7 @@ uploads and enqueue them.
 
   - `media` values: `video` (default), `audio`, `both`.
   - `audio_format`: format used when extracting audio (e.g. `wav`, `mp3`).
+  - `transcribe`: set to `true` to generate an AI transcript using Whisper.
 
 - Response (HTTP 200):
 
@@ -68,9 +70,12 @@ uploads and enqueue them.
 ```json
 {
   "status": "done",
-  "storage": "local",
+  "storage": "minio",
   "filename": "<name>",
-  "ext": "mp4"
+  "ext": "mp4",
+  "public_url": "https://.../name.mp4",
+  "public_transcript": "https://.../name.srt",
+  "transcript_file": "/data/downloads/<name>.srt"
 }
 ```
 
@@ -79,9 +84,12 @@ uploads and enqueue them.
 ```json
 {
   "status": "done",
-  "storage": "local",
+  "storage": "minio",
   "filename": "<name>",
-  "ext": "wav"
+  "ext": "wav",
+  "public_url": "https://.../name.wav",
+  "public_transcript": "https://.../name.srt",
+  "transcript_file": "/data/downloads/<name>.srt"
 }
 ```
 
@@ -90,9 +98,13 @@ uploads and enqueue them.
 ```json
 {
   "status": "done",
-  "storage": "local",
+  "storage": "minio",
   "video_file": "/data/downloads/<name>.mp4",
-  "audio_file": "/data/downloads/<name>.wav"
+  "audio_file": "/data/downloads/<name>.wav",
+  "transcript_file": "/data/downloads/<name>.srt",
+  "public_video": "https://.../name.mp4",
+  "public_audio": "https://.../name.wav",
+  "public_transcript": "https://.../name.srt"
 }
 ```
 
@@ -105,7 +117,8 @@ uploads and enqueue them.
 {
   "channel_url": "https://www.youtube.com/channel/UC.../videos",
   "media": "video",
-  "audio_format": "wav"
+  "audio_format": "wav",
+  "transcribe": false
 }
 ```
 
@@ -140,6 +153,14 @@ curl -X POST http://localhost:8080/check_channel \
 	-d '{"channel_url":"https://www.youtube.com/channel/UC.../videos","media":"video"}'
 ```
 
+- Enqueue with AI transcription:
+
+```bash
+curl -X POST http://localhost:8080/enqueue \
+	-H "Content-Type: application/json" \
+	-d '{"url":"https://www.youtube.com/watch?v=...","media":"audio","transcribe":true}'
+```
+
 **Running locally with Docker**
 
 1. Build and bring up services:
@@ -163,6 +184,7 @@ The worker can be configured via environment variables in `docker-compose.yaml`:
 - `JOB_TIMEOUT`: Job timeout in seconds (default: 3600 = 1 hour)
 - `RETRY_BACKOFF_BASE`: Base delay for exponential backoff (default: 60 seconds)
 - `AUTO_DELETE_LOCAL`: Delete local files after upload (default: true)
+- `WHISPER_MODEL`: OpenAI Whisper model to use (default: `base`, options: `tiny`, `base`, `small`, `medium`, `large`)
 
 Example for high-volume workloads:
 ```yaml
