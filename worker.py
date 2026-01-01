@@ -159,7 +159,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
     
     filename = data.get("filename", job_id)
     media = data.get("media", "video")
-    audio_format = data.get("audio_format", "wav")
+    audio_format = data.get("audio_format", "mp3")
     outtmpl = f"{DOWNLOAD_DIR}/{filename}.%(ext)s"
 
     if media == "audio":
@@ -171,6 +171,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "--force-ipv4",
             "--geo-bypass",
             "--no-progress",
+            "-f", "bestaudio/best",
             "-x",
             "--audio-format", audio_format,
             "-o", outtmpl,
