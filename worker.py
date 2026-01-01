@@ -1,5 +1,5 @@
 # worker.py
-import os, time, subprocess, redis, signal, multiprocessing
+import os, time, subprocess, redis, signal, multiprocessing, json
 from redis.exceptions import ConnectionError as RedisConnectionError
 from typing import Optional
 from contextlib import contextmanager
@@ -160,6 +160,8 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
     filename = data.get("filename", job_id)
     media = data.get("media", "video")
     audio_format = data.get("audio_format", "mp3")
+    include_subs = data.get("include_subs", "false").lower() == "true"
+    sub_langs = data.get("sub_langs", "all")
     outtmpl = f"{DOWNLOAD_DIR}/{filename}.%(ext)s"
 
     if media == "audio":
@@ -209,6 +211,32 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             data["url"]
         ]
 
+    if include_subs:
+        subs_flags = [
+            "--write-subs",
+            "--write-auto-subs",
+            "--sub-format", "srt",
+            "--sub-langs", sub_langs,
+            "--embed-subs",
+            "--compat-options", "no-keep-subs-on-embed" 
+        ]
+        # Remove --embed-subs if prefer separate files. 
+        # Requirement: "hasilnya bisa ada srt". Separate files are safer for manipulation.
+        # Let's use separate files, so NO --embed-subs.
+        subs_flags = [
+             "--write-subs",
+             "--write-auto-subs",
+             "--sub-format", "srt",
+             "--sub-langs", sub_langs,
+        ]
+
+        if media == "both":
+            if 'video_cmd' in locals() and video_cmd is not None:
+                video_cmd.extend(subs_flags)
+        else:
+            if cmd is not None:
+                cmd.extend(subs_flags)
+
     if COOKIES_PATH and os.path.exists(COOKIES_PATH):
         # insert cookies into the correct command (video_cmd for media==both)
         if media == "both":
@@ -249,6 +277,29 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             except Exception as e:
                 print(f"[WARN] upload audio to minio failed: {e}")
 
+
+
+        # Subtitle handling for 'both' case
+        subtitles_map = {}
+        if include_subs:
+            try:
+                for f in os.listdir(DOWNLOAD_DIR):
+                    if f.startswith(filename) and f.endswith(".srt"):
+                        local_sub_path = f"{DOWNLOAD_DIR}/{f}"
+                        public_sub_url = ""
+                        if minio_client:
+                            try:
+                                minio_client.fput_object(MINIO_BUCKET, f, local_sub_path)
+                                public_sub_url = f"{MINIO_PUBLIC_BASE_URL}/{f}" if MINIO_PUBLIC_BASE_URL else ""
+                            except Exception as e:
+                                print(f"[WARN] upload sub {f} failed: {e}")
+                        
+                        subtitles_map[f] = public_sub_url
+                        if AUTO_DELETE_LOCAL:
+                            os.remove(local_sub_path)
+            except Exception as e:
+                print(f"[WARN] Error handling subtitles: {e}")
+
         r_local.hset(f"job:{job_id}", mapping={
             "status": "done",
             "storage": "minio" if minio_client else "local",
@@ -256,6 +307,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "audio_file": audio_file,
             "public_video": public_video,
             "public_audio": public_audio,
+            "subtitles": json.dumps(subtitles_map)
         })
 
         if AUTO_DELETE_LOCAL:
@@ -274,12 +326,35 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             except Exception as e:
                 print(f"[WARN] upload to minio failed: {e}")
 
+
+
+        subtitles_map = {}
+        if include_subs:
+            try:
+                for f in os.listdir(DOWNLOAD_DIR):
+                    if f.startswith(filename) and f.endswith(".srt"):
+                        local_sub_path = f"{DOWNLOAD_DIR}/{f}"
+                        public_sub_url = ""
+                        if minio_client:
+                            try:
+                                minio_client.fput_object(MINIO_BUCKET, f, local_sub_path)
+                                public_sub_url = f"{MINIO_PUBLIC_BASE_URL}/{f}" if MINIO_PUBLIC_BASE_URL else ""
+                            except Exception as e:
+                                print(f"[WARN] upload sub {f} failed: {e}")
+                        
+                        subtitles_map[f] = public_sub_url
+                        if AUTO_DELETE_LOCAL:
+                            os.remove(local_sub_path)
+            except Exception as e:
+                print(f"[WARN] Error handling subtitles: {e}")
+
         r_local.hset(f"job:{job_id}", mapping={
             "status": "done",
             "storage": "minio" if minio_client else "local",
             "filename": filename,
             "ext": os.path.splitext(local_file)[1].lstrip('.'),
             "public_url": public_url,
+            "subtitles": json.dumps(subtitles_map)
         })
 
         if AUTO_DELETE_LOCAL and os.path.exists(local_file):
