@@ -106,6 +106,39 @@ def get_redis_connection():
     return redis.from_url(REDIS_URL, decode_responses=True)
 
 
+def run_command_with_progress(cmd, job_id, r_local, stage="downloading"):
+    """Run a command and parse yt-dlp progress output."""
+    import re
+    print(f"[INFO] Running command: {' '.join(cmd)}")
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    
+    percent_re = re.compile(r"(\d+\.\d+)%")
+    
+    for line in proc.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        
+        # Look for percentage in yt-dlp output
+        match = percent_re.search(line)
+        if match:
+            percent = match.group(1)
+            print(f"[{stage.upper()} PROGRESS] {percent}%")
+            r_local.hset(f"job:{job_id}", mapping={
+                "status": f"{stage} ({percent}%)",
+                "progress": percent,
+                "heartbeat": int(time.time())
+            })
+        else:
+            # Optionally log other lines or just skip
+            pass
+
+    proc.wait()
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, cmd)
+    return True
+
+
 def _format_timestamp(seconds: float) -> str:
     """Format seconds into SRT timestamp format: HH:MM:SS,mmm"""
     td = time.gmtime(seconds)
@@ -149,8 +182,11 @@ def _transcribe_audio(audio_path: str, job_id: str, r_local: redis.Redis, lang: 
             now = time.time()
             if now - last_update > 10:
                 progress = (seg.end / duration * 100) if duration > 0 else 0
+                progress_str = f"{progress:.1f}"
+                print(f"[TRANSCRIBING PROGRESS] {progress_str}%")
                 r_local.hset(f"job:{job_id}", mapping={
-                    "status": f"transcribing ({progress:.1f}%)",
+                    "status": f"transcribing ({progress_str}%)",
+                    "progress": progress_str,
                     "heartbeat": int(now)
                 })
                 last_update = now
@@ -253,6 +289,8 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         return False
     print(f"[DEBUG] Job data: {data}")
     
+    # Initialize progress
+    r_local.hset(f"job:{job_id}", "progress", "0")
     filename = data.get("filename", job_id)
     media = data.get("media", "video")
     audio_format = data.get("audio_format", "mp3")
@@ -262,6 +300,18 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
     transcribe_lang = data.get("transcribe_lang") or None
     transcribe_prompt = data.get("transcribe_prompt") or None
     outtmpl = f"{DOWNLOAD_DIR}/{filename}.%(ext)s"
+    
+    # Get metadata including duration
+    duration = 0
+    try:
+        meta_cmd = ["yt-dlp", "--dump-json", "--flat-playlist", data["url"]]
+        meta_proc = subprocess.Popen(meta_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        meta_out, _ = meta_proc.communicate()
+        if meta_out:
+            meta = json.loads(meta_out)
+            duration = meta.get("duration") or 0
+    except Exception as e:
+        print(f"[WARN] Failed to get video duration: {e}")
 
     if media == "audio":
         local_file = f"{DOWNLOAD_DIR}/{filename}.{audio_format}"
@@ -271,7 +321,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "--remote-components", "ejs:github",
             "--force-ipv4",
             "--geo-bypass",
-            "--no-progress",
+            # "--no-progress", # removed to allow parsing
             "-f", "bestaudio/best",
             "-x",
             "--audio-format", audio_format,
@@ -288,7 +338,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "--remote-components", "ejs:github",
             "--force-ipv4",
             "--geo-bypass",
-            "--no-progress",
+            # "--no-progress", # removed to allow parsing
             "-f", data.get("format") or "bv*+ba/b",
             "--merge-output-format", "mp4",
             "-o", outtmpl,
@@ -303,7 +353,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "--remote-components", "ejs:github",
             "--force-ipv4",
             "--geo-bypass",
-            "--no-progress",
+            # "--no-progress", # removed to allow parsing
             "-f", data.get("format") or "bv*+ba/b",
             "--merge-output-format", "mp4",
             "-o", outtmpl,
@@ -350,7 +400,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
 
     # run commands depending on requested media
     if media == "both":
-        subprocess.check_call(video_cmd)
+        run_command_with_progress(video_cmd, job_id, r_local, stage="downloading")
         # extract audio using ffmpeg
         try:
             subprocess.check_call(["ffmpeg", "-y", "-i", video_file, audio_file])
@@ -425,15 +475,17 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
 
         r_local.hset(f"job:{job_id}", mapping={
             "status": "done",
+            "progress": "100",
             "storage": "minio" if minio_client else "local",
-            "video_file": video_file,
-            "audio_file": audio_file,
+            "video_file": public_video,
+            "audio_file": public_audio,
             "public_video": public_video,
             "public_audio": public_audio,
             "public_subtitles": json.dumps(subtitles_map),
             "subtitles_file": json.dumps(local_subtitles_map),
             "public_transcript": public_transcript,
-            "transcript_file": local_transcript_path
+            "transcript_file": public_transcript,
+            "duration": duration
         })
 
         if AUTO_DELETE_LOCAL:
@@ -441,7 +493,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
                 if f and os.path.exists(f):
                     os.remove(f)
     else:
-        subprocess.check_call(cmd)
+        run_command_with_progress(cmd, job_id, r_local, stage="downloading")
         public_url = ""
         if minio_client:
             try:
@@ -511,14 +563,18 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
 
         r_local.hset(f"job:{job_id}", mapping={
             "status": "done",
+            "progress": "100",
             "storage": "minio" if minio_client else "local",
             "filename": filename,
             "ext": os.path.splitext(local_file)[1].lstrip('.'),
             "public_url": public_url,
+            "video_file": public_url if media == "video" else "",
+            "audio_file": public_url if media == "audio" else "",
+            "transcript_file": public_transcript,
             "public_subtitles": json.dumps(subtitles_map),
             "subtitles_file": json.dumps(local_subtitles_map),
             "public_transcript": public_transcript,
-            "transcript_file": local_transcript_path
+            "duration": duration
         })
 
         if AUTO_DELETE_LOCAL:

@@ -28,6 +28,7 @@ class DownloadReq(BaseModel):
     sub_langs: str | None = "all"
     transcribe_lang: str | None = None
     transcribe_prompt: str | None = None
+    download_option: int | None = None  # 1: video, 2: video+audio, 3: video+srt, 4: video+audio+srt
 
 
 class ChannelCheckReq(BaseModel):
@@ -43,6 +44,7 @@ class ChannelCheckReq(BaseModel):
     sub_langs: str | None = "all"
     transcribe_lang: str | None = None
     transcribe_prompt: str | None = None
+    download_option: int | None = None # 1: video, 2: video+audio, 3: video+srt, 4: video+audio+srt
 
 
 def channel_key(url: str) -> str:
@@ -137,14 +139,26 @@ def list_jobs(limit: int = 20):
 def enqueue(request: Request, req: DownloadReq):
     job_id = str(uuid.uuid4())
 
+    # Map download_option if provided
+    media = req.media or "video"
+    transcribe = req.transcribe
+    if req.download_option == 1:
+        media, transcribe = "video", False
+    elif req.download_option == 2:
+        media, transcribe = "both", False
+    elif req.download_option == 3:
+        media, transcribe = "video", True
+    elif req.download_option == 4:
+        media, transcribe = "both", True
+
     r.hset(f"job:{job_id}", mapping={
         "status": "queued",
         "url": req.url,
         "filename": req.filename or job_id,
         "format": req.format or "",
-        "media": req.media or "video",
+        "media": media,
         "audio_format": req.audio_format or "wav",
-        "transcribe": "true" if req.transcribe else "false",
+        "transcribe": "true" if transcribe else "false",
         "include_subs": "true" if req.include_subs else "false",
         "sub_langs": req.sub_langs or "all",
         "transcribe_lang": req.transcribe_lang or "",
@@ -198,14 +212,27 @@ def check_channel(request: Request, req: ChannelCheckReq):
         if req.track:
             r.sadd(seen, vid)
             job_id = str(uuid.uuid4())
+            
+            # Map download_option if provided
+            media = req.media or "video"
+            transcribe = req.transcribe
+            if req.download_option == 1:
+                media, transcribe = "video", False
+            elif req.download_option == 2:
+                media, transcribe = "both", False
+            elif req.download_option == 3:
+                media, transcribe = "video", True
+            elif req.download_option == 4:
+                media, transcribe = "both", True
+
             mapping = {
                 "status": "queued",
                 "url": video_url,
                 "filename": vid,
                 "format": "",
-                "media": req.media or "video",
+                "media": media,
                 "audio_format": req.audio_format or "wav",
-                "transcribe": "true" if req.transcribe else "false",
+                "transcribe": "true" if transcribe else "false",
                 "include_subs": "true" if req.include_subs else "false",
                 "sub_langs": req.sub_langs or "all",
                 "transcribe_lang": req.transcribe_lang or "",

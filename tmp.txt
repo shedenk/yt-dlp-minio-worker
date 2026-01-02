@@ -1,0 +1,6 @@
+      {
+            "duration": duration,
+            "video_file": link minio video,
+            "audio_file": link minio audio/ "" jika tidak ada,
+            "transcript_file": link minio transcript/ "" jika tidak ada   
+      }
