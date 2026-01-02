@@ -4,5 +4,5 @@ yt-dlp
 redis
 minio
 slowapi
-openai-whisper
+faster-whisper
 setuptools-rust

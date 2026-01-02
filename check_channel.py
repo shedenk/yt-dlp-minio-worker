@@ -75,7 +75,12 @@ def enqueue_video(video_obj, seen_set, do_enqueue=True):
             "url": video_url,
             "filename": vid,
             "format": "",
-            "media": "video",
+            "media": video_obj.get("media", "video"),
+            "transcribe": "true" if video_obj.get("transcribe", True) else "false",
+            "include_subs": "true" if video_obj.get("include_subs") else "false",
+            "sub_langs": video_obj.get("sub_langs", "all"),
+            "transcribe_lang": video_obj.get("transcribe_lang", ""),
+            "transcribe_prompt": video_obj.get("transcribe_prompt", ""),
             "upload_date": upload_date,
             "title": title,
         }
@@ -94,6 +99,13 @@ def main():
     p.add_argument("--track", action="store_true", help="mark as seen and enqueue into queue (requires this flag)")
     p.add_argument("--output", "-o", type=str, help="write results to this file (newline-separated URLs or JSON)")
     p.add_argument("--json", action="store_true", help="output JSON format instead of plain URLs")
+    p.add_argument("--transcribe", action="store_true", default=True, help="enable transcription (default: True)")
+    p.add_argument("--no-transcribe", action="store_false", dest="transcribe", help="disable transcription")
+    p.add_argument("--media", type=str, default="video", choices=["video", "audio", "both"], help="media type: video, audio, or both (default: video)")
+    p.add_argument("--include-subs", action="store_true", help="enable subtitles")
+    p.add_argument("--sub-langs", type=str, default="all", help="subtitle languages")
+    p.add_argument("--lang", type=str, help="transcription language")
+    p.add_argument("--prompt", type=str, help="transcription prompt")
     args = p.parse_args()
 
     channel_url = args.channel_url
@@ -106,6 +118,14 @@ def main():
     new_count = 0
     for item in run_yt_dl_flat(channel_url):
         try:
+            # Add extra params to item for enqueue_video
+            item["transcribe"] = args.transcribe
+            item["media"] = args.media
+            item["include_subs"] = args.include_subs
+            item["sub_langs"] = args.sub_langs
+            item["transcribe_lang"] = args.lang
+            item["transcribe_prompt"] = args.prompt
+            
             info = enqueue_video(item, seen, do_enqueue=do_track)
             if info:
                 # info is dict when returned

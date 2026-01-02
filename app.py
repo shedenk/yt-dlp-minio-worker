@@ -21,20 +21,28 @@ class DownloadReq(BaseModel):
     url: str
     filename: str | None = None
     format: str | None = None
-    media: str | None = "video"  # "video" or "audio"
-    audio_format: str | None = "wav"  # when media==audio
-    transcribe: bool | None = False
+    media: str | None = "video"  # "video", "audio", or "both" (video + audio)
+    audio_format: str | None = "mp3"  # when media==audio or both
+    transcribe: bool | None = True
+    include_subs: bool | None = False
+    sub_langs: str | None = "all"
+    transcribe_lang: str | None = None
+    transcribe_prompt: str | None = None
 
 
 class ChannelCheckReq(BaseModel):
     channel_url: str
     media: str | None = "video"
-    audio_format: str | None = "wav"
+    audio_format: str | None = "mp3"
     limit: int | None = 1
     track: bool | None = False  # set to True to enqueue videos for download
     wait: bool | None = False
     wait_timeout: int | None = 60
-    transcribe: bool | None = False
+    transcribe: bool | None = True
+    include_subs: bool | None = False
+    sub_langs: str | None = "all"
+    transcribe_lang: str | None = None
+    transcribe_prompt: str | None = None
 
 
 def channel_key(url: str) -> str:
@@ -136,7 +144,11 @@ def enqueue(request: Request, req: DownloadReq):
         "format": req.format or "",
         "media": req.media or "video",
         "audio_format": req.audio_format or "wav",
-        "transcribe": "true" if req.transcribe else "false"
+        "transcribe": "true" if req.transcribe else "false",
+        "include_subs": "true" if req.include_subs else "false",
+        "sub_langs": req.sub_langs or "all",
+        "transcribe_lang": req.transcribe_lang or "",
+        "transcribe_prompt": req.transcribe_prompt or ""
     })
     r.lpush("yt_queue", job_id)
 
@@ -194,6 +206,10 @@ def check_channel(request: Request, req: ChannelCheckReq):
                 "media": req.media or "video",
                 "audio_format": req.audio_format or "wav",
                 "transcribe": "true" if req.transcribe else "false",
+                "include_subs": "true" if req.include_subs else "false",
+                "sub_langs": req.sub_langs or "all",
+                "transcribe_lang": req.transcribe_lang or "",
+                "transcribe_prompt": req.transcribe_prompt or "",
                 "upload_date": upload_date,
                 "title": title,
             }
