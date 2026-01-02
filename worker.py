@@ -60,7 +60,7 @@ AUTO_DELETE_LOCAL = os.getenv("AUTO_DELETE_LOCAL", "true").lower() == "true"
 # New configuration for retry and concurrency
 WORKER_CONCURRENCY = int(os.getenv("WORKER_CONCURRENCY", "3"))
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
-JOB_TIMEOUT = int(os.getenv("JOB_TIMEOUT", "3600"))  # 1 hour default
+JOB_TIMEOUT = int(os.getenv("JOB_TIMEOUT", "7200"))  # 2 hours default
 RETRY_BACKOFF_BASE = int(os.getenv("RETRY_BACKOFF_BASE", "60"))  # 60 seconds
 
 r = redis.from_url(REDIS_URL, decode_responses=True)
@@ -126,7 +126,7 @@ def _to_srt(segments) -> str:
     return "\n".join(srt)
 
 
-def _transcribe_audio(audio_path: str, lang: str = None, prompt: str = None) -> Optional[str]:
+def _transcribe_audio(audio_path: str, job_id: str, r_local: redis.Redis, lang: str = None, prompt: str = None) -> Optional[str]:
     """Transcribe audio file using Faster-Whisper and return content in SRT format."""
     model = get_whisper_model()
     if not model or not os.path.exists(audio_path):
@@ -135,14 +135,28 @@ def _transcribe_audio(audio_path: str, lang: str = None, prompt: str = None) -> 
         print(f"[INFO] Transcribing {audio_path} (lang={lang})...")
         segments, info = model.transcribe(audio_path, language=lang, initial_prompt=prompt, beam_size=5)
         
-        # Convert segments (generator) to list to check if empty
-        segments_list = list(segments)
+        duration = getattr(info, 'duration', 0)
+        print(f"[INFO] Audio duration: {duration:.2f}s")
         
-        if not segments_list:
+        srt_segments = []
+        last_update = time.time()
+        
+        # Iterate through segments to provide progress updates
+        for i, seg in enumerate(segments, 1):
+            srt_segments.append(seg)
+            
+            # Update Redis status every 10 seconds with progress
+            now = time.time()
+            if now - last_update > 10:
+                progress = (seg.end / duration * 100) if duration > 0 else 0
+                r_local.hset(f"job:{job_id}", "status", f"transcribing ({progress:.1f}%)")
+                last_update = now
+                
+        if not srt_segments:
             print("[WARN] No segments found during transcription")
             return None
             
-        return _to_srt(segments_list)
+        return _to_srt(srt_segments)
     except Exception as e:
         print(f"[ERROR] Transcription failed: {e}")
         return None
@@ -396,12 +410,15 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         public_transcript = ""
         local_transcript_path = ""
         if should_transcribe and os.path.exists(audio_file):
-            text = _transcribe_audio(audio_file, lang=transcribe_lang, prompt=transcribe_prompt)
+            r_local.hset(f"job:{job_id}", "status", "transcribing (0%)")
+            text = _transcribe_audio(audio_file, job_id, r_local, lang=transcribe_lang, prompt=transcribe_prompt)
             if text:
                 local_transcript_path = f"{DOWNLOAD_DIR}/{filename}.srt"
                 with open(local_transcript_path, "w", encoding="utf-8") as f:
                     f.write(text)
                 public_transcript = _upload_file_to_minio(local_transcript_path, MINIO_BUCKET)
+            else:
+                r_local.hset(f"job:{job_id}", "whisper_error", "Transcription returned empty result or failed")
 
         r_local.hset(f"job:{job_id}", mapping={
             "status": "done",
@@ -476,12 +493,15 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
                     transcript_input = None
 
             if transcript_input and os.path.exists(transcript_input):
-                text = _transcribe_audio(transcript_input, lang=transcribe_lang, prompt=transcribe_prompt)
+                r_local.hset(f"job:{job_id}", "status", "transcribing (0%)")
+                text = _transcribe_audio(transcript_input, job_id, r_local, lang=transcribe_lang, prompt=transcribe_prompt)
                 if text:
                     local_transcript_path = f"{DOWNLOAD_DIR}/{filename}.srt"
                     with open(local_transcript_path, "w", encoding="utf-8") as f:
                         f.write(text)
                     public_transcript = _upload_file_to_minio(local_transcript_path, MINIO_BUCKET)
+                else:
+                    r_local.hset(f"job:{job_id}", "whisper_error", "Transcription returned empty result or failed")
 
             if temp_audio and os.path.exists(temp_audio):
                 os.remove(temp_audio)
