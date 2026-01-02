@@ -29,7 +29,7 @@ uploads and enqueue them.
 
 **API Reference**
 
-**POST /enqueue**
+### **POST /enqueue**
 
 - Description: Enqueue a single download job.
 - Request JSON:
@@ -38,21 +38,25 @@ uploads and enqueue them.
 {
   "url": "https://www.youtube.com/watch?v=...",
   "filename": "optional-filename",
-  "format": "optional-yt-dlp-format",
   "media": "video",
-  "audio_format": "wav",
-  "transcribe": false
+  "audio_format": "mp3",
+  "transcribe": true,
+  "transcribe_lang": "id",
+  "transcribe_prompt": "Optional context for Whisper",
+  "include_subs": false,
+  "sub_langs": "all"
 }
 ```
 
-- Notes:
-
-  - `media` values: `video` (default), `audio`, `both`.
-  - `audio_format`: format used when extracting audio (e.g. `wav`, `mp3`).
-  - `transcribe`: set to `true` to generate an AI transcript using Whisper.
+- **Parameters**:
+  - `media`: `video` (default), `audio`, or `both` (video + audio).
+  - `audio_format`: output format for audio (default: `mp3`).
+  - `transcribe`: set to `true` (default) for AI transcription using **Faster-Whisper**.
+  - `transcribe_lang`: ISO code for language (e.g., `id`, `en`).
+  - `transcribe_prompt`: optional text to guide Whisper's formatting/style.
+  - `include_subs`: set to `true` to download YouTube's original subtitles.
 
 - Response (HTTP 200):
-
 ```json
 {
   "job_id": "<uuid>",
@@ -60,150 +64,63 @@ uploads and enqueue them.
 }
 ```
 
-**GET /status/{job_id}**
+### **GET /status/{job_id}**
 
-- Description: Retrieve job status and metadata.
-- Response examples:
+- Description: Retrieve job status and results.
+- **Statuses**: `queued`, `processing`, `transcribing (X%)`, `done`, `error`.
 
-- Video job finished (media=video):
+- **Response Examples**:
 
+- **Processing / Transcribing**:
+```json
+{
+  "status": "transcribing (45.2%)",
+  "heartbeat": 1704170000,
+  "url": "https://...",
+  "media": "video"
+}
+```
+
+- **Done (media=both)**:
 ```json
 {
   "status": "done",
   "storage": "minio",
-  "filename": "<name>",
-  "ext": "mp4",
-  "public_url": "https://.../name.mp4",
-  "public_transcript": "https://.../name.srt",
-  "transcript_file": "/data/downloads/<name>.srt"
+  "public_video": "https://.../video.mp4",
+  "public_audio": "https://.../audio.mp3",
+  "public_transcript": "https://.../transcript.srt",
+  "transcript_file": "/data/downloads/name.srt",
+  "heartbeat": 1704170050
 }
 ```
 
-- Audio job finished (media=audio):
+### **POST /check_channel**
 
-```json
-{
-  "status": "done",
-  "storage": "minio",
-  "filename": "<name>",
-  "ext": "wav",
-  "public_url": "https://.../name.wav",
-  "public_transcript": "https://.../name.srt",
-  "transcript_file": "/data/downloads/<name>.srt"
-}
-```
+- Description: Scan a YouTube channel for new uploads. Supports same parameters as `/enqueue` plus:
+  - `limit`: max items to check (default: 1).
+  - `track`: if `true`, enqueues new videos and remembers them.
+  - `wait`: if `true`, waits for all enqueued jobs to finish.
 
-- Both (media=both) finished:
+**CLI Tools**
 
-```json
-{
-  "status": "done",
-  "storage": "minio",
-  "video_file": "/data/downloads/<name>.mp4",
-  "audio_file": "/data/downloads/<name>.wav",
-  "transcript_file": "/data/downloads/<name>.srt",
-  "public_video": "https://.../name.mp4",
-  "public_audio": "https://.../name.wav",
-  "public_transcript": "https://.../name.srt"
-}
-```
-
-**POST /check_channel**
-
-- Description: Scan a YouTube channel for new uploads and enqueue them.
-- Request JSON:
-
-```json
-{
-  "channel_url": "https://www.youtube.com/channel/UC.../videos",
-  "media": "video",
-  "audio_format": "wav",
-  "transcribe": false
-}
-```
-
-- Response (HTTP 200):
-
-```json
-{
-  "new_count": 2,
-  "job_ids": ["<uuid1>", "<uuid2>"],
-  "video_urls": [
-    "https://www.youtube.com/watch?v=...",
-    "https://www.youtube.com/watch?v=..."
-  ]
-}
-```
-
-**Examples**
-
-- Enqueue both video + wav extraction:
-
+You can also run the channel checker via command line:
 ```bash
-curl -X POST http://localhost:8080/enqueue \
-	-H "Content-Type: application/json" \
-	-d '{"url":"https://www.youtube.com/watch?v=...","media":"both","audio_format":"wav"}'
-```
-
-- Check a channel and get new video URLs:
-
-```bash
-curl -X POST http://localhost:8080/check_channel \
-	-H "Content-Type: application/json" \
-	-d '{"channel_url":"https://www.youtube.com/channel/UC.../videos","media":"video"}'
-```
-
-- Enqueue with AI transcription:
-
-```bash
-curl -X POST http://localhost:8080/enqueue \
-	-H "Content-Type: application/json" \
-	-d '{"url":"https://www.youtube.com/watch?v=...","media":"audio","transcribe":true}'
-```
-
-**Running locally with Docker**
-
-1. Build and bring up services:
-
-```bash
-docker compose up -d --build
-```
-
-2. Run channel checker from inside container (optional):
-
-```bash
-docker compose run --rm yt-dlp-api python check_channel.py "https://www.youtube.com/channel/UC.../videos"
+python check_channel.py "https://www.youtube.com/..." --track --media both --transcribe --lang id
 ```
 
 **Configuration**
 
-The worker can be configured via environment variables in `docker-compose.yaml`:
+Edit `docker-compose.yaml` to adjust performance vs. resources:
 
-- `WORKER_CONCURRENCY`: Number of parallel workers (default: 3)
-- `MAX_RETRIES`: Maximum retry attempts per job (default: 3)
-- `JOB_TIMEOUT`: Job timeout in seconds (default: 3600 = 1 hour)
-- `RETRY_BACKOFF_BASE`: Base delay for exponential backoff (default: 60 seconds)
-- `AUTO_DELETE_LOCAL`: Delete local files after upload (default: true)
-- `WHISPER_MODEL`: OpenAI Whisper model to use (default: `base`, options: `tiny`, `base`, `small`, `medium`, `large`)
-
-Example for high-volume workloads:
-```yaml
-environment:
-  WORKER_CONCURRENCY: "5"
-  MAX_RETRIES: "5"
-  JOB_TIMEOUT: "7200"  # 2 hours for very large files
-```
-
-**Notes & Tips**
-
-- Ensure `DOWNLOAD_DIR` in `docker-compose.yaml` is mounted to a persistent volume (default `/data/downloads`).
-- `ffmpeg` is required for audio extraction; the Dockerfile installs it.
-- `AUTO_DELETE_LOCAL` controls whether worker removes local copies after processing.
-
----
-
-For more details see `app.py`, `worker.py`, and `check_channel.py`.
+- `WORKER_CONCURRENCY`: Parallel jobs (default: **1** recommended for stable RAM).
+- `JOB_TIMEOUT`: Max processing time (default: **14400** = 4 hours).
+- `WHISPER_MODEL`: Faster-Whisper model (default: `base`).
+- `USE_GPU`: Set to `true` if you have NVIDIA GPU and drivers configured.
 
 **Cookies Setup**
 
 To use cookies for authenticated downloads, copy your `cookies.txt` file to the cookies volume. The file will be automatically mounted at `/data/cookies/cookies.txt` inside the container.
+
+---
+
+For more details see `app.py`, `worker.py`, and `check_channel.py`.

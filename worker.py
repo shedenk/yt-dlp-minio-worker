@@ -145,11 +145,14 @@ def _transcribe_audio(audio_path: str, job_id: str, r_local: redis.Redis, lang: 
         for i, seg in enumerate(segments, 1):
             srt_segments.append(seg)
             
-            # Update Redis status every 10 seconds with progress
+            # Update Redis status every 10 seconds with progress and heartbeat
             now = time.time()
             if now - last_update > 10:
                 progress = (seg.end / duration * 100) if duration > 0 else 0
-                r_local.hset(f"job:{job_id}", "status", f"transcribing ({progress:.1f}%)")
+                r_local.hset(f"job:{job_id}", mapping={
+                    "status": f"transcribing ({progress:.1f}%)",
+                    "heartbeat": int(now)
+                })
                 last_update = now
                 
         if not srt_segments:

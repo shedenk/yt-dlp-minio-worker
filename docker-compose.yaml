@@ -54,9 +54,9 @@ services:
       REDIS_URL: redis://:your-redis-password@redis:6379/0
       ROLE: worker
 
-      WORKER_CONCURRENCY: "3"
+      WORKER_CONCURRENCY: "1"
       MAX_RETRIES: "3"
-      JOB_TIMEOUT: "3600"
+      JOB_TIMEOUT: "14400"
       RETRY_BACKOFF_BASE: "60"
 
       AUTO_DELETE_LOCAL: "true"
