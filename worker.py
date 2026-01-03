@@ -337,8 +337,11 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
     transcribe_prompt = data.get("transcribe_prompt") or None
     outtmpl = f"{DOWNLOAD_DIR}/{filename}.%(ext)s"
     
-    # Get metadata including duration
+    # Get metadata including duration and quality
     duration = 0
+    video_quality = ""
+    video_fps = ""
+    audio_quality = ""
     try:
         meta_cmd = ["yt-dlp", "--dump-json", "--flat-playlist", data["url"]]
         meta_proc = subprocess.Popen(meta_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -346,8 +349,21 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         if meta_out:
             meta = json.loads(meta_out)
             duration = meta.get("duration") or 0
+            v_height = meta.get("height") or 0
+            v_fps = meta.get("fps") or 0
+            a_abr = meta.get("abr") or 0
+            
+            # Simple quality mapping
+            if v_height >= 2160: video_quality = "4k"
+            elif v_height >= 1440: video_quality = "2k"
+            elif v_height >= 1080: video_quality = "1080p"
+            elif v_height >= 720: video_quality = "720p"
+            else: video_quality = f"{v_height}p" if v_height else ""
+            
+            if v_fps: video_fps = str(int(v_fps))
+            if a_abr: audio_quality = f"{int(a_abr)}kbps"
     except Exception as e:
-        print(f"[WARN] Failed to get video duration: {e}")
+        print(f"[WARN] Failed to get video metadata: {e}")
 
     if media == "audio":
         local_file = f"{DOWNLOAD_DIR}/{filename}.{audio_format}"
@@ -521,7 +537,12 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "subtitles_file": json.dumps(local_subtitles_map),
             "public_transcript": public_transcript,
             "transcript_file": public_transcript,
-            "duration": duration
+            "duration": duration,
+            "video_duration": duration,
+            "audio_duration": duration,
+            "video_quality": video_quality,
+            "video_fps": video_fps,
+            "audio_quality": audio_quality
         })
 
         if AUTO_DELETE_LOCAL:
@@ -625,7 +646,12 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "public_subtitles": json.dumps(subtitles_map),
             "subtitles_file": json.dumps(local_subtitles_map),
             "public_transcript": public_transcript,
-            "duration": duration
+            "duration": duration,
+            "video_duration": duration if media == "video" else "0",
+            "audio_duration": duration if media == "audio" else "0",
+            "video_quality": video_quality if media == "video" else "",
+            "video_fps": video_fps if media == "video" else "",
+            "audio_quality": audio_quality if media == "audio" else ""
         })
 
         if AUTO_DELETE_LOCAL:

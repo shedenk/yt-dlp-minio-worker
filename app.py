@@ -174,11 +174,15 @@ def enqueue(request: Request, req: DownloadReq):
     return {"job_id": job_id, "status": "queued"}
 
 
-@app.get("/status/{job_id}")
-def status(job_id: str):
     data = r.hgetall(f"job:{job_id}")
     if not data:
         raise HTTPException(404, "job not found")
+    
+    # Filter out internal/redundant fields
+    for field in ["heartbeat", "storage", "duration"]:
+        if field in data:
+            del data[field]
+            
     return data
 
 

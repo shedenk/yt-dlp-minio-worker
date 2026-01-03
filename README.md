@@ -46,13 +46,15 @@ This repository provides a FastAPI service and worker for downloading YouTube vi
 {
   "status": "done",
   "progress": "100",
-  "duration": 212,
+  "video_duration": 212,
+  "audio_duration": 212,
+  "video_quality": "1080p",
+  "video_fps": "30",
+  "audio_quality": "128kbps",
   "db_id": "your-internal-database-id",
   "video_file": "https://minio.com/bucket/video.mp4",
   "audio_file": "https://minio.com/bucket/audio.mp3",
-  "transcript_file": "https://minio.com/bucket/transcript.srt",
-  "storage": "minio",
-  "heartbeat": 1704170050
+  "transcript_file": "https://minio.com/bucket/transcript.srt"
 }
 ```
 
@@ -67,11 +69,14 @@ If a `callback_url` is provided, the worker will send a POST request upon comple
   "db_id": "your-internal-database-id",
   "status": "done",
   "progress": "100",
-  "duration": 212,
+  "video_duration": 212,
+  "audio_duration": 212,
+  "video_quality": "1080p",
+  "video_fps": "30",
+  "audio_quality": "128kbps",
   "video_file": "https://minio.com/bucket/video.mp4",
   "audio_file": "https://minio.com/bucket/audio.mp3",
-  "transcript_file": "https://minio.com/bucket/transcript.srt",
-  "storage": "minio"
+  "transcript_file": "https://minio.com/bucket/transcript.srt"
 }
 ```
 
