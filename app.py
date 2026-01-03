@@ -30,6 +30,7 @@ class DownloadReq(BaseModel):
     transcribe_prompt: str | None = None
     download_option: int | None = None  # 1: video, 2: video+audio, 3: video+srt, 4: video+audio+srt
     callback_url: str | None = None
+    db_id: str | None = None
 
 
 class ChannelCheckReq(BaseModel):
@@ -47,6 +48,7 @@ class ChannelCheckReq(BaseModel):
     transcribe_prompt: str | None = None
     download_option: int | None = None # 1: video, 2: video+audio, 3: video+srt, 4: video+audio+srt
     callback_url: str | None = None
+    db_id: str | None = None
 
 
 def channel_key(url: str) -> str:
@@ -165,7 +167,8 @@ def enqueue(request: Request, req: DownloadReq):
         "sub_langs": req.sub_langs or "all",
         "transcribe_lang": req.transcribe_lang or "",
         "transcribe_prompt": req.transcribe_prompt or "",
-        "callback_url": req.callback_url or ""
+        "callback_url": req.callback_url or "",
+        "db_id": req.db_id or ""
     })
     r.lpush("yt_queue", job_id)
 
@@ -241,6 +244,7 @@ def check_channel(request: Request, req: ChannelCheckReq):
                 "transcribe_lang": req.transcribe_lang or "",
                 "transcribe_prompt": req.transcribe_prompt or "",
                 "callback_url": req.callback_url or "",
+                "db_id": req.db_id or "",
                 "upload_date": upload_date,
                 "title": title,
             }
