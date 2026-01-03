@@ -19,7 +19,6 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 class DownloadReq(BaseModel):
     url: str
-    filename: str | None = None
     format: str | None = None
     media: str | None = "video"  # "video", "audio", or "both" (video + audio)
     audio_format: str | None = "mp3"  # when media==audio or both
@@ -158,7 +157,7 @@ def enqueue(request: Request, req: DownloadReq):
     r.hset(f"job:{job_id}", mapping={
         "status": "queued",
         "url": req.url,
-        "filename": req.filename or job_id,
+        "filename": job_id,
         "format": req.format or "",
         "media": media,
         "audio_format": req.audio_format or "wav",

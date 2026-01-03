@@ -24,7 +24,6 @@ This repository provides a FastAPI service and worker for downloading YouTube vi
   "download_option": 4,
   "callback_url": "https://your-api.com/callback",
   "db_id": "your-internal-database-id",
-  "filename": "optional-filename",
   "transcribe_lang": "id",
   "include_subs": false
 }
