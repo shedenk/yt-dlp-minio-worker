@@ -201,6 +201,30 @@ def _transcribe_audio(audio_path: str, job_id: str, r_local: redis.Redis, lang: 
         return None
 
 
+def _trigger_callback(job_id: str, r_local: redis.Redis):
+    """Fetch job data and POST it to callback_url if present."""
+    import httpx
+    try:
+        data = r_local.hgetall(f"job:{job_id}")
+        callback_url = data.get("callback_url")
+        if not callback_url:
+            return
+
+        print(f"[CALLBACK] Triggering for job {job_id} to {callback_url}")
+        
+        # Prepare payload: include job_id, exclude heartbeat
+        payload = data.copy()
+        payload["job_id"] = job_id
+        if "heartbeat" in payload:
+            del payload["heartbeat"]
+
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(callback_url, json=payload)
+            print(f"[CALLBACK] Status: {resp.status_code}")
+    except Exception as e:
+        print(f"[CALLBACK] Error: {e}")
+
+
 def _upload_file_to_minio(file_path: str, bucket_name: str) -> str:
     """Upload a file to MinIO and return its public URL."""
     if not minio_client or not os.path.exists(file_path):
@@ -233,6 +257,9 @@ def process_single_job(job_id: str) -> bool:
             with timeout_handler(JOB_TIMEOUT):
                 success = _execute_download(job_id, r_local)
                 
+            # Trigger callback regardless of success/fail (terminal state reached)
+            _trigger_callback(job_id, r_local)
+
             if success:
                 print(f"[SUCCESS] Job {job_id} completed successfully")
                 return True
@@ -273,6 +300,9 @@ def process_single_job(job_id: str) -> bool:
                     })
                 except Exception:
                     pass
+                
+                # Final failure callback
+                _trigger_callback(job_id, r_local)
                 return False
     
     return False
@@ -489,9 +519,24 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         })
 
         if AUTO_DELETE_LOCAL:
+            print(f"[INFO] Cleaning up local files for {filename}")
+            # Delete direct files
             for f in [video_file, audio_file, local_transcript_path]:
                 if f and os.path.exists(f):
-                    os.remove(f)
+                    try:
+                        os.remove(f)
+                    except Exception as e:
+                        print(f"[WARN] Failed to delete {f}: {e}")
+            
+            # Catch any remaining files with this filename prefix (e.g. fragments, extra subs)
+            try:
+                for f in os.listdir(DOWNLOAD_DIR):
+                    if f.startswith(filename):
+                        path = os.path.join(DOWNLOAD_DIR, f)
+                        if os.path.isfile(path):
+                            os.remove(path)
+            except Exception as e:
+                print(f"[WARN] Batch cleanup failed: {e}")
     else:
         run_command_with_progress(cmd, job_id, r_local, stage="downloading")
         public_url = ""
@@ -578,9 +623,23 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         })
 
         if AUTO_DELETE_LOCAL:
+            print(f"[INFO] Cleaning up local files for {filename}")
             for f in [local_file, local_transcript_path]:
                 if f and os.path.exists(f):
-                    os.remove(f)
+                    try:
+                        os.remove(f)
+                    except Exception as e:
+                        print(f"[WARN] Failed to delete {f}: {e}")
+            
+            # Catch any remaining files with this filename prefix
+            try:
+                for f in os.listdir(DOWNLOAD_DIR):
+                    if f.startswith(filename):
+                        path = os.path.join(DOWNLOAD_DIR, f)
+                        if os.path.isfile(path):
+                            os.remove(path)
+            except Exception as e:
+                print(f"[WARN] Batch cleanup failed: {e}")
     
     return True
 

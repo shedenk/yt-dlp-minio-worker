@@ -21,10 +21,10 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Jakarta
-      REDIS_URL: redis://:your-redis-password@redis:6379/0
+      REDIS_URL: ${REDIS_URL:-redis://:your-redis-password@redis:6379/0}
       ROLE: api
 
-      ENABLE_DOWNLOAD: "false"
+      ENABLE_DOWNLOAD: ${ENABLE_DOWNLOAD:-false}
 
       DOWNLOAD_DIR: /data/downloads
       COOKIES_PATH: /data/cookies/cookies.txt
@@ -51,17 +51,17 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Jakarta
-      REDIS_URL: redis://:your-redis-password@redis:6379/0
+      REDIS_URL: ${REDIS_URL:-redis://:your-redis-password@redis:6379/0}
       ROLE: worker
 
-      WORKER_CONCURRENCY: "1"
-      MAX_RETRIES: "3"
-      JOB_TIMEOUT: "14400"
-      RETRY_BACKOFF_BASE: "60"
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
+      MAX_RETRIES: ${MAX_RETRIES:-3}
+      JOB_TIMEOUT: ${JOB_TIMEOUT:-14400}
+      RETRY_BACKOFF_BASE: ${RETRY_BACKOFF_BASE:-60}
 
-      AUTO_DELETE_LOCAL: "true"
-      CLEANUP_MAX_AGE: "7200"
-      MINIO_STRICT: "true"
+      AUTO_DELETE_LOCAL: ${AUTO_DELETE_LOCAL:-true}
+      CLEANUP_MAX_AGE: ${CLEANUP_MAX_AGE:-7200}
+      MINIO_STRICT: ${MINIO_STRICT:-true}
 
       DOWNLOAD_DIR: /data/downloads
       COOKIES_PATH: /data/cookies/cookies.txt
