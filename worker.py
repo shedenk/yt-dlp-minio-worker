@@ -112,7 +112,7 @@ def run_command_with_progress(cmd, job_id, r_local, stage="downloading"):
     print(f"[INFO] Running command: {' '.join(cmd)}")
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
     
-    percent_re = re.compile(r"(\d+\.\d+)%")
+    percent_re = re.compile(r"(\d+(?:\.\d+)?)%")
     
     for line in proc.stdout:
         line = line.strip()
@@ -122,13 +122,19 @@ def run_command_with_progress(cmd, job_id, r_local, stage="downloading"):
         # Look for percentage in yt-dlp output
         match = percent_re.search(line)
         if match:
-            percent = match.group(1)
-            print(f"[{stage.upper()} PROGRESS] {percent}%")
-            r_local.hset(f"job:{job_id}", mapping={
-                "status": f"{stage} ({percent}%)",
-                "progress": percent,
-                "heartbeat": int(time.time())
-            })
+            percent_str = match.group(1)
+            try:
+                # Ensure it's a valid number between 0 and 100
+                percent = float(percent_str)
+                if 0 <= percent <= 100:
+                    print(f"[{stage.upper()} PROGRESS] {percent_str}%")
+                    r_local.hset(f"job:{job_id}", mapping={
+                        "status": f"{stage} ({percent_str}%)",
+                        "progress": percent_str,
+                        "heartbeat": int(time.time())
+                    })
+            except ValueError:
+                pass
         else:
             # Optionally log other lines or just skip
             pass
