@@ -10,6 +10,7 @@ from slowapi.errors import RateLimitExceeded
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 r = redis.from_url(REDIS_URL, decode_responses=True)
 ROLE = os.getenv("ROLE", "api")
+COOKIES_PATH = os.getenv("COOKIES_PATH", "/data/cookies/cookies.txt")
 
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="yt-dlp API")
@@ -62,6 +63,9 @@ def run_yt_dl_flat(channel_url: str):
         "--dump-json",
         channel_url,
     ]
+    if COOKIES_PATH and os.path.exists(COOKIES_PATH):
+        cmd.insert(1, "--cookies")
+        cmd.insert(2, COOKIES_PATH)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     for line in proc.stdout:
         line = line.strip()

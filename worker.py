@@ -344,6 +344,9 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
     audio_quality = ""
     try:
         meta_cmd = ["yt-dlp", "--dump-json", "--flat-playlist", data["url"]]
+        if COOKIES_PATH and os.path.exists(COOKIES_PATH):
+            meta_cmd.insert(1, "--cookies")
+            meta_cmd.insert(2, COOKIES_PATH)
         meta_proc = subprocess.Popen(meta_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         meta_out, _ = meta_proc.communicate()
         if meta_out:
