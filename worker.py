@@ -52,7 +52,7 @@ except Exception as e:
     minio_client = None
     print(f"[WARN] MinIO client init failed: {e}")
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+REDIS_URL = os.getenv("REDIS_URL", "redis://:your-redis-password@redis:6379/0")
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/data/downloads")
 COOKIES_PATH = os.getenv("COOKIES_PATH", "/data/cookies/cookies.txt")
 AUTO_DELETE_LOCAL = os.getenv("AUTO_DELETE_LOCAL", "true").lower() == "true"
