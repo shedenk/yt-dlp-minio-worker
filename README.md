@@ -120,3 +120,10 @@ For more details, see `app.py` and `worker.py`.
   "transcribe_lang": "id",
   "storage": "minio"
 }
+
+{
+  "job_id": "734a4b36-0a23-4b9c-ad90-2f2585ee7b7d",
+  "db_id": "157",
+  "status": "error",
+  "progress": "0",
+  "error": "Failed after 3 attempts: Command '['yt-dlp', '--cookies', '/data/cookies/cookies.txt', '--js-runtimes', 'node', '--remote-components', 'ejs:github', '--force-ipv4', '--geo-bypass', '-f', 'bv*+ba/b', '--merge-output-format', 'mp4', '-o
