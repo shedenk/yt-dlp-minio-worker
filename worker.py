@@ -277,6 +277,9 @@ def _trigger_callback(job_id: str, r_local: redis.Redis):
         if "heartbeat" in payload:
             del payload["heartbeat"]
 
+        print(f"[CALLBACK] Body: {json.dumps(payload)}")
+        sys.stdout.flush()
+
         with httpx.Client(timeout=30.0) as client:
             resp = client.post(callback_url, json=payload)
             print(f"[CALLBACK] Status: {resp.status_code}")
