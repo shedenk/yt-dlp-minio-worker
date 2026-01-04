@@ -53,6 +53,23 @@ except Exception as e:
     print(f"[WARN] MinIO client init failed: {e}")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://:your-redis-password@redis:6379/0")
+
+def get_redis_client(url: str):
+    print(f"[INFO] Connecting to Redis...")
+    try:
+        client = redis.from_url(url, decode_responses=True)
+        client.ping()
+        print("[INFO] Redis connection successful")
+        return client
+    except redis.exceptions.AuthenticationError:
+        print("[CRITICAL] Redis Authentication failed! Application exiting.")
+        import sys
+        sys.exit(1)
+    except Exception as e:
+        print(f"[ERROR] Redis connection failed: {e}")
+        return client
+
+r = get_redis_client(REDIS_URL)
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/data/downloads")
 COOKIES_PATH = os.getenv("COOKIES_PATH", "/data/cookies/cookies.txt")
 AUTO_DELETE_LOCAL = os.getenv("AUTO_DELETE_LOCAL", "true").lower() == "true"

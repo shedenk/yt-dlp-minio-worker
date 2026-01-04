@@ -18,7 +18,11 @@ import redis
 import argparse
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://:your-redis-password@redis:6379/0")
-r = redis.from_url(REDIS_URL, decode_responses=True)
+try:
+    r = redis.from_url(REDIS_URL, decode_responses=True)
+    r.ping()
+except Exception as e:
+    print(f"[WARN] Redis connection test failed: {e}", file=sys.stderr)
 COOKIES_PATH = os.getenv("COOKIES_PATH", "/data/cookies/cookies.txt")
 
 def channel_key(url: str) -> str:

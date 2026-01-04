@@ -9,22 +9,44 @@ from slowapi.errors import RateLimitExceeded
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://:your-redis-password@redis:6379/0")
 print(f"[INFO] Connecting to Redis...")
-# Mask password for logging
-masked_url = REDIS_URL
-if "@" in REDIS_URL and ":" in REDIS_URL.split("@")[0]:
-    parts = REDIS_URL.split("@")
-    prefix = parts[0].split(":")
-    masked_url = f"{prefix[0]}:****@{parts[1]}"
-print(f"[DEBUG] REDIS_URL: {masked_url}")
 
-try:
-    r = redis.from_url(REDIS_URL, decode_responses=True)
-    r.ping()
-    print("[INFO] Redis connection successful")
-except redis.exceptions.AuthenticationError:
-    print("[ERROR] Redis Authentication failed! Check your REDIS_URL and password.")
-except Exception as e:
-    print(f"[ERROR] Redis connection failed: {e}")
+def get_redis_client(url: str):
+    # Mask password for logging
+    masked_url = url
+    pwd_len = 0
+    if "@" in url:
+        try:
+            auth_part, host_part = url.split("://")[1].split("@")
+            if ":" in auth_part:
+                _, pwd = auth_part.split(":", 1)
+                pwd_len = len(pwd)
+                masked_url = f"redis://:****@{host_part}"
+            else:
+                pwd_len = len(auth_part)
+                masked_url = f"redis://:****@{host_part}"
+        except Exception:
+            masked_url = "redis://****@..."
+    
+    print(f"[DEBUG] Connecting to Redis at {masked_url} (password length: {pwd_len})")
+    
+    try:
+        client = redis.from_url(url, decode_responses=True)
+        # Force immediate connection check
+        client.ping()
+        print("[INFO] Redis connection successful")
+        return client
+    except redis.exceptions.AuthenticationError:
+        print("[CRITICAL] Redis Authentication failed! The provided password is incorrect.")
+        print("[CRITICAL] Application will now exit to prevent inconsistent state.")
+        import sys
+        sys.exit(1)
+    except Exception as e:
+        print(f"[ERROR] Redis connection failed: {e}")
+        # For other errors (like connection refused), we might want to wait/retry, 
+        # but for now, let's just log it.
+        return client
+
+r = get_redis_client(REDIS_URL)
 
 ROLE = os.getenv("ROLE", "api")
 COOKIES_PATH = os.getenv("COOKIES_PATH", "/data/cookies/cookies.txt")
