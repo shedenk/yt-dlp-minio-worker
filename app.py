@@ -8,7 +8,24 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://:your-redis-password@redis:6379/0")
-r = redis.from_url(REDIS_URL, decode_responses=True)
+print(f"[INFO] Connecting to Redis...")
+# Mask password for logging
+masked_url = REDIS_URL
+if "@" in REDIS_URL and ":" in REDIS_URL.split("@")[0]:
+    parts = REDIS_URL.split("@")
+    prefix = parts[0].split(":")
+    masked_url = f"{prefix[0]}:****@{parts[1]}"
+print(f"[DEBUG] REDIS_URL: {masked_url}")
+
+try:
+    r = redis.from_url(REDIS_URL, decode_responses=True)
+    r.ping()
+    print("[INFO] Redis connection successful")
+except redis.exceptions.AuthenticationError:
+    print("[ERROR] Redis Authentication failed! Check your REDIS_URL and password.")
+except Exception as e:
+    print(f"[ERROR] Redis connection failed: {e}")
+
 ROLE = os.getenv("ROLE", "api")
 COOKIES_PATH = os.getenv("COOKIES_PATH", "/data/cookies/cookies.txt")
 
