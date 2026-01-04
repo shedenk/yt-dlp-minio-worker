@@ -13,7 +13,7 @@ services:
     restart: unless-stopped
     networks:
       - internal-net
-    command: redis-server --requirepass your-redis-password --appendonly no
+    command: redis-server --appendonly no
 
   yt-dlp-api:
     build: .

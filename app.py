@@ -7,7 +7,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://:your-redis-password@redis:6379/0")
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 print(f"[INFO] Connecting to Redis...")
 
 def get_redis_client(url: str):

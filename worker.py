@@ -52,17 +52,34 @@ except Exception as e:
     minio_client = None
     print(f"[WARN] MinIO client init failed: {e}")
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://:your-redis-password@redis:6379/0")
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
 def get_redis_client(url: str):
-    print(f"[INFO] Connecting to Redis...")
+    # Mask password for logging
+    masked_url = url
+    pwd_len = 0
+    if "://" in url and "@" in url:
+        try:
+            auth_part = url.split("://")[1].rsplit("@", 1)[0]
+            if ":" in auth_part:
+                pwd = auth_part.split(":", 1)[1]
+                pwd_len = len(pwd)
+                masked_url = url.replace(pwd, "****")
+            else:
+                pwd_len = len(auth_part)
+                masked_url = url.replace(auth_part, "****")
+        except Exception:
+            masked_url = "redis://****@..."
+    
+    print(f"[INFO] Connecting to Redis at {masked_url} (password length: {pwd_len})...")
+    
     try:
         client = redis.from_url(url, decode_responses=True)
         client.ping()
         print("[INFO] Redis connection successful")
         return client
     except redis.exceptions.AuthenticationError:
-        print("[CRITICAL] Redis Authentication failed! Application exiting.")
+        print("[CRITICAL] Redis Authentication failed! The provided password is incorrect.")
         import sys
         sys.exit(1)
     except Exception as e:
