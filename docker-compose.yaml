@@ -23,6 +23,7 @@ services:
       TZ: Asia/Jakarta
       REDIS_URL: ${REDIS_URL:-redis://yt-redis:6379/0}
       ROLE: api
+      PYTHONUNBUFFERED: "1"
 
       ENABLE_DOWNLOAD: ${ENABLE_DOWNLOAD:-false}
 
@@ -53,6 +54,7 @@ services:
       TZ: Asia/Jakarta
       REDIS_URL: ${REDIS_URL:-redis://yt-redis:6379/0}
       ROLE: worker
+      PYTHONUNBUFFERED: "1"
 
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
       MAX_RETRIES: ${MAX_RETRIES:-3}

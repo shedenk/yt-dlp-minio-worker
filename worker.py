@@ -1,9 +1,12 @@
-# worker.py
-import os, time, subprocess, redis, signal, multiprocessing, json
+import os, time, subprocess, redis, signal, multiprocessing, json, sys
+print("[DEBUG] worker.py: imports done")
+sys.stdout.flush()
+
 try:
     from faster_whisper import WhisperModel
     WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "base")
-    print(f"[INFO] Initializing Whisper model: {WHISPER_MODEL_NAME}...")
+    print(f"[INFO] Found faster-whisper package. Model: {WHISPER_MODEL_NAME}")
+    sys.stdout.flush()
     
     class WhisperingModel:
         _instance = None
