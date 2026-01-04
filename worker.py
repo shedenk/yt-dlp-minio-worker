@@ -53,6 +53,7 @@ except Exception as e:
     print(f"[WARN] MinIO client init failed: {e}")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+print(f"[INFO] Initializing worker with REDIS_URL: {REDIS_URL.split('@')[1] if '@' in REDIS_URL else REDIS_URL}")
 
 def get_redis_client(url: str):
     # Mask password for logging
@@ -97,7 +98,7 @@ MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
 JOB_TIMEOUT = int(os.getenv("JOB_TIMEOUT", "7200"))  # 2 hours default
 RETRY_BACKOFF_BASE = int(os.getenv("RETRY_BACKOFF_BASE", "60"))  # 60 seconds
 
-# r = redis.from_url(REDIS_URL, decode_responses=True)
+# Redundant init removed
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 # ensure cookies parent dir exists (mount-friendly)
 try:
