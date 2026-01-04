@@ -72,10 +72,9 @@ def get_redis_client(url: str):
         except Exception:
             masked_url = "redis://****@..."
     
-    print(f"[INFO] Connecting to Redis at {masked_url} (password length: {pwd_len})...")
-    
     try:
         client = redis.from_url(url, decode_responses=True)
+        print(f"[INFO] Connecting to Redis at {masked_url} (host: {client.connection_pool.connection_kwargs.get('host')}, port: {client.connection_pool.connection_kwargs.get('port')}, password length: {pwd_len})...")
         client.ping()
         print("[INFO] Redis connection successful")
         return client
