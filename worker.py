@@ -52,7 +52,7 @@ except Exception as e:
     minio_client = None
     print(f"[WARN] MinIO client init failed: {e}")
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+REDIS_URL = os.getenv("REDIS_URL", "redis://yt-redis:6379/0")
 print(f"[INFO] Initializing worker with REDIS_URL: {REDIS_URL.split('@')[1] if '@' in REDIS_URL else REDIS_URL}")
 
 def get_redis_client(url: str):

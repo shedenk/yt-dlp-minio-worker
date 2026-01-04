@@ -5,7 +5,7 @@ networks:
     external: true
 
 services:
-  redis:
+  yt-redis:
     image: redis:7-alpine
     container_name: yt-dlp-redis
     environment:
