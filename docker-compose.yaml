@@ -21,7 +21,7 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Jakarta
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_URL: ${REDIS_URL:-redis://yt-redis:6379/0}
       ROLE: api
 
       ENABLE_DOWNLOAD: ${ENABLE_DOWNLOAD:-false}
@@ -43,7 +43,7 @@ services:
     networks:
       - internal-net
     depends_on:
-      - redis
+      - yt-redis
 
   yt-dlp-worker:
     build: .
@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Jakarta
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_URL: ${REDIS_URL:-redis://yt-redis:6379/0}
       ROLE: worker
 
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
@@ -79,7 +79,7 @@ services:
     networks:
       - internal-net
     depends_on:
-      - redis
+      - yt-redis
 
 volumes:
   downloads_data:
