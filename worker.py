@@ -647,11 +647,27 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         local_subtitles_map = {}
         if include_subs:
             try:
+                # Priority languages if "all" is requested
+                priority_langs = ['id', 'en']
+                
                 print(f"[DEBUG] Scanning subs in {DOWNLOAD_DIR} for {filename}")
                 all_files = os.listdir(DOWNLOAD_DIR)
-                print(f"[DEBUG] Found files: {all_files}")
                 for f in all_files:
+                    # Check if it's a subtitle file for this job
+                    # yt-dlp saves as filename.lang.srt
                     if f.startswith(filename) and f.endswith(".srt"):
+                        # Skip the main transcription file (it's handled separately)
+                        if f == f"{filename}.srt":
+                            continue
+                            
+                        # If "all" was requested, only upload priority languages to save space
+                        if sub_langs_requested == "all":
+                            lang_part = f.replace(filename + ".", "").replace(".srt", "")
+                            if lang_part not in priority_langs:
+                                # Still keep locally for the status but don't upload to MinIO
+                                # to avoid cluttering as per user request
+                                continue
+
                         local_sub_path = f"{DOWNLOAD_DIR}/{f}"
                         public_sub_url = ""
                         local_subtitles_map[f] = local_sub_path
@@ -664,8 +680,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
                                 print(f"[WARN] upload sub {f} failed: {e}")
                         
                         subtitles_map[f] = public_sub_url
-                        if AUTO_DELETE_LOCAL:
-                            os.remove(local_sub_path)
+                        # Don't delete yet, batch cleanup will handle it
             except Exception as e:
                 print(f"[WARN] Error handling subtitles: {e}")
 
