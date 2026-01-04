@@ -280,6 +280,8 @@ def _trigger_callback(job_id: str, r_local: redis.Redis):
         with httpx.Client(timeout=30.0) as client:
             resp = client.post(callback_url, json=payload)
             print(f"[CALLBACK] Status: {resp.status_code}")
+            if resp.status_code >= 400:
+                print(f"[CALLBACK] Response Body: {resp.text}")
     except Exception as e:
         print(f"[CALLBACK] Error: {e}")
 
