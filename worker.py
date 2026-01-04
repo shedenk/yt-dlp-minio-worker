@@ -173,8 +173,9 @@ def run_command_with_progress(cmd, job_id, r_local, stage="downloading"):
             except ValueError:
                 pass
         else:
-            # Optionally log other lines or just skip
-            pass
+            # Log non-progress lines for debugging (errors, info, etc)
+            print(f"[YTDLP] {line}")
+            sys.stdout.flush()
 
     proc.wait()
     if proc.returncode != 0:
