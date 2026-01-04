@@ -71,6 +71,7 @@ def enqueue_video(video_obj, seen_set, do_enqueue=True):
 
     upload_date = video_obj.get('upload_date') or video_obj.get('timestamp')
     title = video_obj.get('title') or ""
+    duration = video_obj.get('duration')
 
     if do_enqueue:
         # mark seen
@@ -91,14 +92,15 @@ def enqueue_video(video_obj, seen_set, do_enqueue=True):
             "transcribe_prompt": video_obj.get("transcribe_prompt", ""),
             "upload_date": upload_date,
             "title": title,
+            "duration": duration,
         }
         clean_mapping = {k: str(v) for k, v in mapping.items() if v is not None}
         r.hset(f"job:{job_id}", mapping=clean_mapping)
         r.lpush("yt_queue", job_id)
-        return {"job_id": job_id, "url": video_url, "upload_date": upload_date, "title": title}
+        return {"job_id": job_id, "url": video_url, "upload_date": upload_date, "title": title, "duration": duration}
     else:
         # dry-run: just report what would be enqueued
-        return {"job_id": None, "url": video_url, "upload_date": upload_date, "title": title}
+        return {"job_id": None, "url": video_url, "upload_date": upload_date, "title": title, "duration": duration}
 
 def main():
     p = argparse.ArgumentParser(description="Check a YouTube channel for new videos (flat-playlist).")
