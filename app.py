@@ -57,6 +57,12 @@ def channel_key(url: str) -> str:
 
 
 def run_yt_dl_flat(channel_url: str):
+    if COOKIES_PATH:
+        if os.path.exists(COOKIES_PATH):
+            print(f"[INFO] Using cookies from {COOKIES_PATH} (size: {os.path.getsize(COOKIES_PATH)} bytes)")
+        else:
+            print(f"[WARN] Cookies file NOT FOUND at {COOKIES_PATH}")
+
     cmd = [
         "yt-dlp",
         "--flat-playlist",

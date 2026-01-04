@@ -141,6 +141,7 @@ def run_command_with_progress(cmd, job_id, r_local, stage="downloading"):
 
     proc.wait()
     if proc.returncode != 0:
+        print(f"[ERROR] Command failed with return code {proc.returncode}")
         raise subprocess.CalledProcessError(proc.returncode, cmd)
     return True
 
@@ -343,6 +344,12 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
     video_fps = ""
     audio_quality = ""
     try:
+        if COOKIES_PATH:
+            if os.path.exists(COOKIES_PATH):
+                print(f"[INFO] Using cookies from {COOKIES_PATH} (size: {os.path.getsize(COOKIES_PATH)} bytes)")
+            else:
+                print(f"[WARN] Cookies file NOT FOUND at {COOKIES_PATH}")
+        
         meta_cmd = ["yt-dlp", "--dump-json", "--flat-playlist", data["url"]]
         if COOKIES_PATH and os.path.exists(COOKIES_PATH):
             meta_cmd.insert(1, "--cookies")
@@ -461,9 +468,13 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             subprocess.check_call(["ffmpeg", "-y", "-i", video_file, audio_file])
         except Exception:
             # fallback: try yt-dlp audio extraction if ffmpeg fails
-            subprocess.check_call([
+            fallback_cmd = [
                 "yt-dlp", "-x", "--audio-format", audio_format, "-o", outtmpl, data["url"]
-            ])
+            ]
+            if COOKIES_PATH and os.path.exists(COOKIES_PATH):
+                fallback_cmd.insert(1, "--cookies")
+                fallback_cmd.insert(2, COOKIES_PATH)
+            subprocess.check_call(fallback_cmd)
 
         public_video = ""
         public_audio = ""
