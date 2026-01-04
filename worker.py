@@ -97,7 +97,7 @@ MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
 JOB_TIMEOUT = int(os.getenv("JOB_TIMEOUT", "7200"))  # 2 hours default
 RETRY_BACKOFF_BASE = int(os.getenv("RETRY_BACKOFF_BASE", "60"))  # 60 seconds
 
-r = redis.from_url(REDIS_URL, decode_responses=True)
+# r = redis.from_url(REDIS_URL, decode_responses=True)
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 # ensure cookies parent dir exists (mount-friendly)
 try:

@@ -21,7 +21,7 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Jakarta
-      REDIS_URL: ${REDIS_URL:-redis://:your-redis-password@redis:6379/0}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       ROLE: api
 
       ENABLE_DOWNLOAD: ${ENABLE_DOWNLOAD:-false}
@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Jakarta
-      REDIS_URL: ${REDIS_URL:-redis://:your-redis-password@redis:6379/0}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       ROLE: worker
 
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
