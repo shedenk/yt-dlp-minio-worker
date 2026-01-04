@@ -207,10 +207,21 @@ def _transcribe_audio(audio_path: str, job_id: str, r_local: redis.Redis, lang: 
         return None
     try:
         print(f"[INFO] Transcribing {audio_path} (lang={lang})...")
-        segments, info = model.transcribe(audio_path, language=lang, initial_prompt=prompt, beam_size=5)
+        segments, info = model.transcribe(
+            audio_path, 
+            language=lang, 
+            initial_prompt=prompt, 
+            beam_size=1,            # Faster on CPU
+            best_of=1,              # Match beam_size
+            vad_filter=True,        # Skip silences to avoid stalls
+            vad_parameters=dict(min_silence_duration_ms=500),
+            temperature=0           # More stable decoding
+        )
         
         duration = getattr(info, 'duration', 0)
-        print(f"[INFO] Audio duration: {duration:.2f}s")
+        duration_after_vad = getattr(info, 'duration_after_vad', duration)
+        print(f"[INFO] Audio duration: {duration:.2f}s (after VAD: {duration_after_vad:.2f}s)")
+        print(f"[INFO] Detected language: {info.language} ({info.language_probability:.2f})")
         
         srt_segments = []
         last_update = time.time()
@@ -218,6 +229,9 @@ def _transcribe_audio(audio_path: str, job_id: str, r_local: redis.Redis, lang: 
         # Iterate through segments to provide progress updates
         for i, seg in enumerate(segments, 1):
             srt_segments.append(seg)
+            
+            # Detailed per-segment logging for debugging stalls
+            print(f"[TRANSCRIPTION-SEGMENT] {seg.start:.1f}s - {seg.end:.1f}s: {seg.text.strip()}")
             
             # Update Redis status every 10 seconds with progress and heartbeat
             now = time.time()
