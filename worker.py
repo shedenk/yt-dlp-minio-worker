@@ -372,23 +372,39 @@ def process_single_job(job_id: str) -> bool:
                     "status": "error",
                     "error": f"Failed after {MAX_RETRIES} attempts: {error_msg}"
                 })
+                _trigger_callback(job_id, r_local)
                 return False
                 
         except Exception as e:
             error_msg = str(e)
             print(f"[ERROR] Job {job_id}: {error_msg} (attempt {attempt + 1}/{MAX_RETRIES})")
             r_local.hset(f"job:{job_id}", "last_error", error_msg)
+
+            # Check for fatal errors that should not be retried
+            fatal_errors = [
+                "Join this channel to get access to members-only content",
+                "This video is available to this channel's members",
+                "Video unavailable",
+                "This video has been removed",
+                "Private video",
+                "Sign in to confirm your age",
+                "Video is an upcoming live stream",
+                "Video is a live stream",
+                "Video is a YouTube Short",
+                "is less than 15 minutes"
+            ]
+            is_fatal = any(err in error_msg for err in fatal_errors)
             
-            if attempt < MAX_RETRIES - 1:
+            if attempt < MAX_RETRIES - 1 and not is_fatal:
                 backoff = min(300, RETRY_BACKOFF_BASE * (2 ** attempt))
                 print(f"[INFO] Retrying job {job_id} in {backoff}s...")
                 time.sleep(backoff)
             else:
-                # Final attempt failed
+                # Final attempt failed or fatal error
                 try:
                     r_local.hset(f"job:{job_id}", mapping={
                         "status": "error",
-                        "error": f"Failed after {MAX_RETRIES} attempts: {error_msg}"
+                        "error": f"Failed: {error_msg}" if is_fatal else f"Failed after {MAX_RETRIES} attempts: {error_msg}"
                     })
                 except Exception:
                     pass
@@ -447,12 +463,21 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             # Check for upcoming live streams (waiting for live)
             if meta.get("live_status") == "is_upcoming":
                 raise Exception("Video is an upcoming live stream (waiting for live).")
+
+            # Check for live streams (currently live)
+            if meta.get("live_status") == "is_live":
+                raise Exception("Video is a live stream.")
             
-            # Check for Shorts (if not caught by API URL check)
+            # Check for Shorts
             if "/shorts/" in meta.get("webpage_url", ""):
                 raise Exception("Video is a YouTube Short.")
 
             duration = meta.get("duration") or 0
+            
+            # Check duration < 15 minutes (900 seconds)
+            if duration < 900:
+                raise Exception(f"Video duration ({duration}s) is less than 15 minutes.")
+
             v_height = meta.get("height") or 0
             v_fps = meta.get("fps") or 0
             a_abr = meta.get("abr") or 0
