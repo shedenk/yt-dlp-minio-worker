@@ -60,6 +60,16 @@ def enqueue_video(video_obj, seen_set, do_enqueue=True):
     if not vid:
         return False
 
+    # Filter: Skip Live, Upcoming, Shorts, and Short Videos (< 15 mins)
+    if video_obj.get("live_status") in ("is_live", "is_upcoming"):
+        return False
+        
+    if "/shorts/" in (video_obj.get("url") or ""):
+        return False
+        
+    if (video_obj.get("duration") or 0) < 900:
+        return False
+
     # use youtube watch URL if id looks like a video id
     if len(vid) <= 32 and not vid.startswith('http'):
         video_url = f"https://www.youtube.com/watch?v={vid}"

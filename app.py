@@ -258,6 +258,18 @@ def check_channel(request: Request, req: ChannelCheckReq):
         if not vid:
             continue
 
+        # Filter: Skip Live, Upcoming, Shorts, and Short Videos (< 15 mins)
+        if item.get("live_status") in ("is_live", "is_upcoming"):
+            continue
+            
+        if "/shorts/" in (item.get("url") or ""):
+            continue
+            
+        # Treat None duration as 0 (skip if unknown/live)
+        duration = item.get("duration") or 0
+        if duration < 900:
+            continue
+
         # normalize video URL
         if len(vid) <= 32 and not vid.startswith("http"):
             video_url = f"https://www.youtube.com/watch?v={vid}"
