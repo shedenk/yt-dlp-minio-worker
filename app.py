@@ -106,6 +106,7 @@ def run_yt_dl_flat(channel_url: str):
         "yt-dlp",
         "--flat-playlist",
         "--dump-json",
+        "--",
         channel_url,
     ]
     if COOKIES_PATH and os.path.exists(COOKIES_PATH):
@@ -189,6 +190,12 @@ def list_jobs(limit: int = 20):
 @app.post("/enqueue")
 @limiter.limit("10/minute")
 def enqueue(request: Request, req: DownloadReq):
+    # Reject playlist URLs and Shorts to prevent worker overload
+    if "list=" in req.url or "/playlist" in req.url:
+        raise HTTPException(status_code=400, detail="Playlist URLs are not allowed. Please provide a single video URL.")
+    if "/shorts/" in req.url:
+        raise HTTPException(status_code=400, detail="YouTube Shorts are not allowed.")
+
     job_id = str(uuid.uuid4())
 
     # Map download_option if provided

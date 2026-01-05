@@ -143,6 +143,21 @@ def get_redis_connection():
     return redis.from_url(REDIS_URL, decode_responses=True)
 
 
+def run_subprocess_safe(cmd):
+    """Run a subprocess and ensure it is killed if an exception (like Timeout) occurs."""
+    print(f"[INFO] Running command: {' '.join(cmd)}")
+    proc = subprocess.Popen(cmd)
+    try:
+        proc.wait()
+    except Exception:
+        if proc.poll() is None:
+            print(f"[WARN] Killing stuck subprocess {proc.pid}")
+            proc.kill()
+            proc.wait()
+        raise
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, cmd)
+
 def run_command_with_progress(cmd, job_id, r_local, stage="downloading"):
     """Run a command and parse yt-dlp progress output."""
     import re
@@ -150,36 +165,49 @@ def run_command_with_progress(cmd, job_id, r_local, stage="downloading"):
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
     
     percent_re = re.compile(r"(\d+(?:\.\d+)?)%")
-    
-    for line in proc.stdout:
-        line = line.strip()
-        if not line:
-            continue
-        
-        # Look for percentage in yt-dlp output
-        match = percent_re.search(line)
-        if match:
-            percent_str = match.group(1)
-            try:
-                # Ensure it's a valid number between 0 and 100
-                percent = float(percent_str)
-                if 0 <= percent <= 100:
-                    print(f"[{stage.upper()} PROGRESS] {percent_str}%")
-                    r_local.hset(f"job:{job_id}", mapping={
-                        "status": f"{stage} ({percent_str}%)",
-                        "progress": percent_str,
-                        "heartbeat": int(time.time())
-                    })
-            except ValueError:
-                pass
-        else:
-            # Log non-progress lines for debugging (errors, info, etc)
-            print(f"[YTDLP] {line}")
-            sys.stdout.flush()
+    error_lines = []
 
-    proc.wait()
+    try:
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Look for percentage in yt-dlp output
+            match = percent_re.search(line)
+            if match:
+                percent_str = match.group(1)
+                try:
+                    # Ensure it's a valid number between 0 and 100
+                    percent = float(percent_str)
+                    if 0 <= percent <= 100:
+                        print(f"[{stage.upper()} PROGRESS] {percent_str}%")
+                        r_local.hset(f"job:{job_id}", mapping={
+                            "status": f"{stage} ({percent_str}%)",
+                            "progress": percent_str,
+                            "heartbeat": int(time.time())
+                        })
+                except ValueError:
+                    pass
+            else:
+                # Log non-progress lines for debugging (errors, info, etc)
+                print(f"[YTDLP] {line}")
+                if "ERROR:" in line:
+                    error_lines.append(line)
+                sys.stdout.flush()
+
+        proc.wait()
+    except Exception:
+        if proc.poll() is None:
+            print(f"[WARN] Killing stuck subprocess {proc.pid}")
+            proc.kill()
+            proc.wait()
+        raise
+
     if proc.returncode != 0:
         print(f"[ERROR] Command failed with return code {proc.returncode}")
+        if error_lines:
+            raise Exception(f"Download failed: {'; '.join(error_lines)}")
         raise subprocess.CalledProcessError(proc.returncode, cmd)
     return True
 
@@ -407,7 +435,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             else:
                 print(f"[WARN] Cookies file NOT FOUND at {COOKIES_PATH}")
         
-        meta_cmd = ["yt-dlp", "--dump-json", "--flat-playlist", data["url"]]
+        meta_cmd = ["yt-dlp", "--dump-json", "--flat-playlist", "--", data["url"]]
         if COOKIES_PATH and os.path.exists(COOKIES_PATH):
             meta_cmd.insert(1, "--cookies")
             meta_cmd.insert(2, COOKIES_PATH)
@@ -415,6 +443,15 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         meta_out, _ = meta_proc.communicate()
         if meta_out:
             meta = json.loads(meta_out)
+            
+            # Check for upcoming live streams (waiting for live)
+            if meta.get("live_status") == "is_upcoming":
+                raise Exception("Video is an upcoming live stream (waiting for live).")
+            
+            # Check for Shorts (if not caught by API URL check)
+            if "/shorts/" in meta.get("webpage_url", ""):
+                raise Exception("Video is a YouTube Short.")
+
             duration = meta.get("duration") or 0
             v_height = meta.get("height") or 0
             v_fps = meta.get("fps") or 0
@@ -445,6 +482,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "-x",
             "--audio-format", audio_format,
             "-o", outtmpl,
+            "--",
             data["url"]
         ]
     elif media == "both":
@@ -461,6 +499,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "-f", data.get("format") or "bv*+ba/b",
             "--merge-output-format", "mp4",
             "-o", outtmpl,
+            "--",
             data["url"]
         ]
         cmd = None
@@ -476,6 +515,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "-f", data.get("format") or "bv*+ba/b",
             "--merge-output-format", "mp4",
             "-o", outtmpl,
+            "--",
             data["url"]
         ]
 
@@ -486,17 +526,6 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "--write-auto-subs",
             "--sub-format", "srt",
             "--sub-langs", sub_langs,
-            "--embed-subs",
-            "--compat-options", "no-keep-subs-on-embed" 
-        ]
-        # Remove --embed-subs if prefer separate files. 
-        # Requirement: "hasilnya bisa ada srt". Separate files are safer for manipulation.
-        # Let's use separate files, so NO --embed-subs.
-        subs_flags = [
-             "--write-subs",
-             "--write-auto-subs",
-             "--sub-format", "srt",
-             "--sub-langs", sub_langs,
         ]
 
         if media == "both":
@@ -522,16 +551,16 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         run_command_with_progress(video_cmd, job_id, r_local, stage="downloading")
         # extract audio using ffmpeg
         try:
-            subprocess.check_call(["ffmpeg", "-y", "-i", video_file, audio_file])
+            run_subprocess_safe(["ffmpeg", "-y", "-i", video_file, audio_file])
         except Exception:
             # fallback: try yt-dlp audio extraction if ffmpeg fails
             fallback_cmd = [
-                "yt-dlp", "-x", "--audio-format", audio_format, "-o", outtmpl, data["url"]
+                "yt-dlp", "-x", "--audio-format", audio_format, "-o", outtmpl, "--", data["url"]
             ]
             if COOKIES_PATH and os.path.exists(COOKIES_PATH):
                 fallback_cmd.insert(1, "--cookies")
                 fallback_cmd.insert(2, COOKIES_PATH)
-            subprocess.check_call(fallback_cmd)
+            run_subprocess_safe(fallback_cmd)
 
         public_video = ""
         public_audio = ""
@@ -693,7 +722,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
                 # Need to extract audio temporarily for transcription
                 temp_audio = f"{DOWNLOAD_DIR}/{filename}_temp.wav"
                 try:
-                    subprocess.check_call(["ffmpeg", "-y", "-i", local_file, "-ar", "16000", "-ac", "1", temp_audio])
+                    run_subprocess_safe(["ffmpeg", "-y", "-i", local_file, "-ar", "16000", "-ac", "1", temp_audio])
                     transcript_input = temp_audio
                 except Exception as e:
                     print(f"[ERROR] Failed to extract temp audio for transcription: {e}")
@@ -803,9 +832,16 @@ def main():
                 processes.append(p)
                 print(f"[INFO] Started worker process {p.pid}")
             
-            # Wait for all processes
-            for p in processes:
-                p.join()
+            # Monitor loop: Restart workers if they die
+            while True:
+                time.sleep(5)
+                for i, p in enumerate(processes):
+                    if not p.is_alive():
+                        print(f"[WARN] Worker {p.name} (pid {p.pid}) died. Restarting...")
+                        new_p = multiprocessing.Process(target=worker_process, name=p.name)
+                        new_p.start()
+                        processes[i] = new_p
+                        print(f"[INFO] Started new worker process {new_p.pid}")
                 
         except KeyboardInterrupt:
             print("\n[INFO] Shutting down workers...")

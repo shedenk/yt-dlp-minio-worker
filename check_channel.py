@@ -35,6 +35,7 @@ def run_yt_dl_flat(channel_url: str):
         "yt-dlp",
         "--flat-playlist",
         "--dump-json",
+        "--",
         channel_url
     ]
     if COOKIES_PATH and os.path.exists(COOKIES_PATH):
