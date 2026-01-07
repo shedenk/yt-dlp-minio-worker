@@ -453,7 +453,6 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
                 print(f"[WARN] Cookies file NOT FOUND at {COOKIES_PATH}")
         
         meta_cmd = ["yt-dlp", "--dump-json", "--flat-playlist", "--socket-timeout", "30", "--", data["url"]]
-        meta_cmd = ["yt-dlp", "--dump-json", "--flat-playlist", "--socket-timeout", "30", "--", data["url"]]
         if COOKIES_PATH and os.path.exists(COOKIES_PATH):
             meta_cmd.insert(1, "--cookies")
             meta_cmd.insert(2, COOKIES_PATH)

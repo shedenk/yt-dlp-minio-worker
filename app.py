@@ -129,6 +129,104 @@ def check_video_has_subtitles(url: str) -> bool:
         print(f"[WARN] Error checking subtitles for {url}: {e}")
     return False
 
+def download_subtitle(video_url: str, video_id: str) -> str:
+    """Download Indonesian subtitle for a video and upload to MinIO.
+    
+    Returns:
+        MinIO URL of the subtitle file, or empty string if failed
+    """
+    import tempfile
+    import shutil
+    
+    # Create temp directory for download
+    temp_dir = tempfile.mkdtemp()
+    
+    try:
+        # Download only Indonesian subtitle
+        output_template = f"{temp_dir}/{video_id}.%(ext)s"
+        cmd = [
+            "yt-dlp",
+            "--write-subs",
+            "--write-auto-subs",
+            "--sub-format", "srt",
+            "--sub-langs", "id",
+            "--skip-download",  # Don't download video, only subtitle
+            "--socket-timeout", "15",
+            "-o", output_template,
+            "--",
+            video_url
+        ]
+        
+        if COOKIES_PATH and os.path.exists(COOKIES_PATH):
+            cmd.insert(1, "--cookies")
+            cmd.insert(2, COOKIES_PATH)
+        
+        # Run download with timeout
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            stdout, stderr = proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            print(f"[WARN] Subtitle download timeout for {video_id}")
+            return ""
+        
+        if proc.returncode != 0:
+            print(f"[WARN] Subtitle download failed for {video_id}")
+            return ""
+        
+        # Find the downloaded subtitle file
+        subtitle_file = None
+        for f in os.listdir(temp_dir):
+            if f.endswith(".srt") and video_id in f:
+                subtitle_file = f
+                break
+        
+        if not subtitle_file:
+            print(f"[INFO] No Indonesian subtitle found for {video_id}")
+            return ""
+        
+        # Rename to standard format
+        old_path = f"{temp_dir}/{subtitle_file}"
+        new_path = f"{temp_dir}/{video_id}.srt"
+        if old_path != new_path:
+            os.rename(old_path, new_path)
+        
+        # Upload to MinIO
+        try:
+            from minio import Minio
+            MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
+            MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
+            MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
+            MINIO_BUCKET = os.getenv("MINIO_BUCKET")
+            MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
+            MINIO_PUBLIC_BASE_URL = os.getenv("MINIO_PUBLIC_BASE_URL", "").rstrip('/')
+            
+            if MINIO_ENDPOINT and MINIO_ACCESS_KEY and MINIO_SECRET_KEY and MINIO_BUCKET:
+                client = Minio(MINIO_ENDPOINT, access_key=MINIO_ACCESS_KEY, 
+                              secret_key=MINIO_SECRET_KEY, secure=MINIO_SECURE)
+                
+                client.fput_object(MINIO_BUCKET, f"{video_id}.srt", new_path)
+                public_url = f"{MINIO_PUBLIC_BASE_URL}/{video_id}.srt"
+                print(f"[INFO] Uploaded subtitle to MinIO: {public_url}")
+                return public_url
+            else:
+                print(f"[WARN] MinIO not configured, subtitle not uploaded")
+                return ""
+        except Exception as e:
+            print(f"[ERROR] MinIO upload failed for {video_id}: {e}")
+            return ""
+            
+    except Exception as e:
+        print(f"[ERROR] Subtitle download error for {video_id}: {e}")
+        return ""
+    finally:
+        # Cleanup temp directory
+        try:
+            shutil.rmtree(temp_dir)
+        except Exception:
+            pass
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "role": "api"}
@@ -287,8 +385,20 @@ def check_channel(request: Request, req: ChannelCheckReq):
         # Check if video has subtitles
         has_subtitles = check_video_has_subtitles(video_url)
         
-        # add to results regardless of tracking
-        new_urls.append({"url": video_url, "upload_date": upload_date, "title": title, "has_subtitles": has_subtitles, "duration": duration})
+        # Download subtitle if available
+        subtitle_url = ""
+        if has_subtitles:
+            subtitle_url = download_subtitle(video_url, vid)
+        
+        # add to results with subtitle URL
+        new_urls.append({
+            "url": video_url, 
+            "upload_date": upload_date, 
+            "title": title, 
+            "has_subtitles": has_subtitles, 
+            "subtitle_url": subtitle_url,
+            "duration": duration
+        })
 
         # only enqueue if track=True
         if req.track:

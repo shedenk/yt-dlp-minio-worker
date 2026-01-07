@@ -231,7 +231,7 @@ Content-Type: application/json
 
 **Endpoint:** `POST /check_channel`
 
-Memeriksa video terbaru di channel dan melihat status subtitle-nya.
+Memeriksa video terbaru di channel dan melihat status subtitle-nya. Jika video memiliki subtitle bahasa Indonesia, akan otomatis di-download dan di-upload ke MinIO.
 
 **Request Body:**
 
@@ -259,6 +259,7 @@ Memeriksa video terbaru di channel dan melihat status subtitle-nya.
       "title": "Judul Video 1",
       "upload_date": "20240101",
       "has_subtitles": true,
+      "subtitle_url": "http://localhost:9000/mybucket/VIDEO_ID_1.srt",
       "duration": 1250
     },
     {
@@ -266,6 +267,7 @@ Memeriksa video terbaru di channel dan melihat status subtitle-nya.
       "title": "Judul Video 2",
       "upload_date": "20240102",
       "has_subtitles": false,
+      "subtitle_url": "",
       "duration": 980
     }
   ]
@@ -274,6 +276,8 @@ Memeriksa video terbaru di channel dan melihat status subtitle-nya.
 
 **Catatan:**
 - Field `has_subtitles` menunjukkan apakah video memiliki subtitle manual/auto di YouTube
+- Field `subtitle_url` berisi URL MinIO dari subtitle bahasa Indonesia yang sudah di-download (kosong jika tidak ada)
+- Subtitle otomatis di-download dan di-upload ke MinIO dengan nama `{video_id}.srt`
 - Video dengan durasi < 15 menit akan difilter otomatis
 - Video Shorts dan Live Stream akan difilter otomatis
 
