@@ -452,7 +452,8 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             else:
                 print(f"[WARN] Cookies file NOT FOUND at {COOKIES_PATH}")
         
-        meta_cmd = ["yt-dlp", "--dump-json", "--flat-playlist", "--no-input", "--socket-timeout", "30", "--", data["url"]]
+        meta_cmd = ["yt-dlp", "--dump-json", "--flat-playlist", "--socket-timeout", "30", "--", data["url"]]
+        meta_cmd = ["yt-dlp", "--dump-json", "--flat-playlist", "--socket-timeout", "30", "--", data["url"]]
         if COOKIES_PATH and os.path.exists(COOKIES_PATH):
             meta_cmd.insert(1, "--cookies")
             meta_cmd.insert(2, COOKIES_PATH)
@@ -499,7 +500,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         local_file = f"{DOWNLOAD_DIR}/{filename}.{audio_format}"
         cmd = [
             "yt-dlp",
-            "--no-input", "--socket-timeout", "30",
+            "--socket-timeout", "30",
             "--js-runtimes", "node",
             "--remote-components", "ejs:github",
             "--force-ipv4",
@@ -518,7 +519,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         audio_file = f"{DOWNLOAD_DIR}/{filename}.{audio_format}"
         video_cmd = [
             "yt-dlp",
-            "--no-input", "--socket-timeout", "30",
+            "--socket-timeout", "30",
             "--js-runtimes", "node",
             "--remote-components", "ejs:github",
             "--force-ipv4",
@@ -535,7 +536,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         local_file = f"{DOWNLOAD_DIR}/{filename}.mp4"
         cmd = [
             "yt-dlp",
-            "--no-input", "--socket-timeout", "30",
+            "--socket-timeout", "30",
             "--js-runtimes", "node",
             "--remote-components", "ejs:github",
             "--force-ipv4",
@@ -584,7 +585,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         except Exception:
             # fallback: try yt-dlp audio extraction if ffmpeg fails
             fallback_cmd = [
-                "yt-dlp", "--no-input", "--socket-timeout", "30", "-x", "--audio-format", audio_format, "-o", outtmpl, "--", data["url"]
+                "yt-dlp", "--socket-timeout", "30", "-x", "--audio-format", audio_format, "-o", outtmpl, "--", data["url"]
             ]
             if COOKIES_PATH and os.path.exists(COOKIES_PATH):
                 fallback_cmd.insert(1, "--cookies")

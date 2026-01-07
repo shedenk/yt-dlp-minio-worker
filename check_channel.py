@@ -35,7 +35,6 @@ def run_yt_dl_flat(channel_url: str):
         "yt-dlp",
         "--flat-playlist",
         "--dump-json",
-        "--no-input",
         "--socket-timeout", "15",
         "--",
         channel_url
@@ -61,7 +60,6 @@ def check_video_has_subtitles(url: str) -> bool:
         "yt-dlp",
         "--dump-json",
         "--no-playlist",
-        "--no-input",
         "--socket-timeout", "15",
         "--",
         url,
