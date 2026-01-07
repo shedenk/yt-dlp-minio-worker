@@ -557,12 +557,18 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "--sub-langs", sub_langs,
         ]
 
+        # Insert subtitle flags BEFORE the "--" separator
+        # Rebuild command with: [base_cmd] + [subs_flags] + ["--", url]
         if media == "both":
             if 'video_cmd' in locals() and video_cmd is not None:
-                video_cmd.extend(subs_flags)
+                # video_cmd[-2] is "--", video_cmd[-1] is url
+                url = video_cmd[-1]
+                video_cmd = video_cmd[:-2] + subs_flags + ["--", url]
         else:
             if cmd is not None:
-                cmd.extend(subs_flags)
+                # cmd[-2] is "--", cmd[-1] is url
+                url = cmd[-1]
+                cmd = cmd[:-2] + subs_flags + ["--", url]
 
     if COOKIES_PATH and os.path.exists(COOKIES_PATH):
         # insert cookies into the correct command (video_cmd for media==both)
