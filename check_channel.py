@@ -6,7 +6,7 @@ python check_channel.py "https://www.youtube.com/channel/.../videos"
 
 This script uses `yt-dlp --flat-playlist --dump-json` to list items in a
 channel's uploads, stores seen video ids in Redis (per-channel set), and
-enqueues new videos into the `yt_queue` by creating job entries in Redis.
+reports new videos.
 """
 import sys
 import os
@@ -35,6 +35,8 @@ def run_yt_dl_flat(channel_url: str):
         "yt-dlp",
         "--flat-playlist",
         "--dump-json",
+        "--no-input",
+        "--socket-timeout", "15",
         "--",
         channel_url
     ]
@@ -54,7 +56,31 @@ def run_yt_dl_flat(channel_url: str):
             continue
         yield obj
 
-def enqueue_video(video_obj, seen_set, do_enqueue=True):
+def check_video_has_subtitles(url: str) -> bool:
+    cmd = [
+        "yt-dlp",
+        "--dump-json",
+        "--no-playlist",
+        "--no-input",
+        "--socket-timeout", "15",
+        "--",
+        url,
+    ]
+    if COOKIES_PATH and os.path.exists(COOKIES_PATH):
+        cmd.insert(1, "--cookies")
+        cmd.insert(2, COOKIES_PATH)
+        
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout, _ = proc.communicate()
+        if proc.returncode == 0 and stdout:
+            info = json.loads(stdout)
+            return bool(info.get("subtitles") or info.get("automatic_captions"))
+    except Exception as e:
+        print(f"[WARN] Error checking subtitles for {url}: {e}", file=sys.stderr)
+    return False
+
+def process_video(video_obj, seen_set, do_track=True):
     # yt-dlp flat entries usually contain 'id' and 'title'
     vid = video_obj.get('id') or video_obj.get('url')
     if not vid:
@@ -84,34 +110,15 @@ def enqueue_video(video_obj, seen_set, do_enqueue=True):
     title = video_obj.get('title') or ""
     duration = video_obj.get('duration')
 
-    if do_enqueue:
+    if do_track:
         # mark seen
         r.sadd(seen_set, vid)
 
-        # create a job (include upload_date if available)
-        job_id = str(uuid.uuid4())
-        mapping = {
-            "status": "queued",
-            "url": video_url,
-            "filename": vid,
-            "format": "",
-            "media": video_obj.get("media", "video"),
-            "transcribe": "true" if video_obj.get("transcribe", True) else "false",
-            "include_subs": "true" if video_obj.get("include_subs") else "false",
-            "sub_langs": video_obj.get("sub_langs", "all"),
-            "transcribe_lang": video_obj.get("transcribe_lang", ""),
-            "transcribe_prompt": video_obj.get("transcribe_prompt", ""),
-            "upload_date": upload_date,
-            "title": title,
-            "duration": duration,
-        }
-        clean_mapping = {k: str(v) for k, v in mapping.items() if v is not None}
-        r.hset(f"job:{job_id}", mapping=clean_mapping)
-        r.lpush("yt_queue", job_id)
-        return {"job_id": job_id, "url": video_url, "upload_date": upload_date, "title": title, "duration": duration}
-    else:
-        # dry-run: just report what would be enqueued
-        return {"job_id": None, "url": video_url, "upload_date": upload_date, "title": title, "duration": duration}
+    # Check subtitles
+    has_subtitles = check_video_has_subtitles(video_url)
+
+    # just report what was found
+    return {"url": video_url, "upload_date": upload_date, "title": title, "has_subtitles": has_subtitles, "duration": duration}
 
 def main():
     p = argparse.ArgumentParser(description="Check a YouTube channel for new videos (flat-playlist).")
@@ -120,13 +127,6 @@ def main():
     p.add_argument("--track", action="store_true", help="mark as seen and enqueue into queue (requires this flag)")
     p.add_argument("--output", "-o", type=str, help="write results to this file (newline-separated URLs or JSON)")
     p.add_argument("--json", action="store_true", help="output JSON format instead of plain URLs")
-    p.add_argument("--transcribe", action="store_true", default=True, help="enable transcription (default: True)")
-    p.add_argument("--no-transcribe", action="store_false", dest="transcribe", help="disable transcription")
-    p.add_argument("--media", type=str, default="video", choices=["video", "audio", "both"], help="media type: video, audio, or both (default: video)")
-    p.add_argument("--include-subs", action="store_true", help="enable subtitles")
-    p.add_argument("--sub-langs", type=str, default="all", help="subtitle languages")
-    p.add_argument("--lang", type=str, help="transcription language")
-    p.add_argument("--prompt", type=str, help="transcription prompt")
     args = p.parse_args()
 
     channel_url = args.channel_url
@@ -138,16 +138,8 @@ def main():
     results = []
     new_count = 0
     for item in run_yt_dl_flat(channel_url):
-        try:
-            # Add extra params to item for enqueue_video
-            item["transcribe"] = args.transcribe
-            item["media"] = args.media
-            item["include_subs"] = args.include_subs
-            item["sub_langs"] = args.sub_langs
-            item["transcribe_lang"] = args.lang
-            item["transcribe_prompt"] = args.prompt
-            
-            info = enqueue_video(item, seen, do_enqueue=do_track)
+        try:            
+            info = process_video(item, seen, do_track=do_track)
             if info:
                 # info is dict when returned
                 results.append(info)
@@ -158,7 +150,7 @@ def main():
             print(f"[WARN] enqueue failed: {e}")
 
     # output results
-    out = {"new_count": new_count, "items": results}
+    out = {"new_count": new_count, "video_urls": results}
 
     if args.json:
         # JSON output

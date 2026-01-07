@@ -1,129 +1,108 @@
-# yt-dlp-minio-worker
+# YT-DLP MinIO Worker with Whisper Transcription
 
-This repository provides a FastAPI service and worker for downloading YouTube videos using `yt-dlp`, optionally uploading to MinIO, and performing AI transcription.
+Sistem backend yang scalable untuk mengunduh video YouTube, mengekstrak audio, dan menghasilkan transkripsi menggunakan model OpenAI Whisper. Sistem ini menggunakan Redis untuk antrian pekerjaan (job queue) dan MinIO untuk penyimpanan objek.
 
-## Features
+## Fitur Utama
 
-- **Download Options**: Choose between Video only, Video + Audio, Video + SRT, or Video + Audio + SRT.
-- **Progress Tracking**: Real-time progress percentage in job status and worker logs.
-- **Callback URL**: Webhook notification once the job is finished.
-- **Transcription**: Powered by **Faster-Whisper** with progress awareness.
-- **Reliability**: Retry mechanism with exponential backoff and timeout protection.
-- **MinIO Integration**: Automatically uploads results to MinIO and returns public links.
+- **Download Video & Audio**: Mendukung format video, audio saja, atau keduanya.
+- **Transkripsi AI**: Menggunakan `faster-whisper` (mendukung GPU/CPU) untuk speech-to-text.
+- **Manajemen Subtitle Cerdas**:
+  - **Download Subtitle**: Mengambil subtitle bawaan YouTube (Manual/CC) jika tersedia.
+  - **Generate Subtitle**: Membuat subtitle baru via Whisper jika tidak ada subtitle bawaan.
+  - **Deteksi Awal**: Endpoint `check_channel` kini dapat mendeteksi ketersediaan subtitle (`has_subtitles`) sebelum download.
+- **Penyimpanan**: Integrasi otomatis dengan MinIO (S3 Compatible).
+- **Monitoring Channel**: Memantau channel YouTube untuk video baru.
 
-## API Reference
+## Instalasi & Konfigurasi
 
-### **POST /enqueue**
+Pastikan Anda memiliki Python 3.10+, Redis, dan (Opsional) MinIO server.
 
-- Description: Enqueue a download job.
-- Request JSON:
+### Environment Variables
+
+Buat file `.env` atau set environment variables berikut:
+
+```bash
+# Redis Configuration
+REDIS_URL=redis://localhost:6379/0
+
+# MinIO Configuration (Opsional)
+MINIO_ENDPOINT=minio:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+MINIO_BUCKET=mybucket
+MINIO_SECURE=false
+MINIO_PUBLIC_BASE_URL=http://localhost:9000/mybucket
+
+# Worker Settings
+DOWNLOAD_DIR=/data/downloads
+COOKIES_PATH=/data/cookies/cookies.txt
+WORKER_CONCURRENCY=3
+WHISPER_MODEL=base    # tiny, base, small, medium, large-v2
+USE_GPU=true          # Set false untuk CPU only
+```
+
+## Penggunaan API
+
+Jalankan server API:
+
+```bash
+uvicorn app:app --host 0.0.0.0 --port 8000
+```
+
+### 1. Enqueue Download (Menambahkan Antrian)
+
+Endpoint: `POST /enqueue`
 
 ```json
 {
-  "url": "https://www.youtube.com/watch?v=...",
-  "download_option": 4,
-  "callback_url": "https://your-api.com/callback",
-  "db_id": "your-internal-database-id",
-  "transcribe_lang": "id",
-  "include_subs": false
+  "url": "https://www.youtube.com/watch?v=VIDEO_ID",
+  "video": true, // Download video
+  "audio": false, // Download audio
+  "transcribe": true, // Transkrip (Bahasa Indonesia)
+  "callback_url": "http...", // Webhook URL untuk notifikasi selesai
+  "db_id": "123"
 }
 ```
 
-- **Parameters**:
-  - `download_option`: 
-    - `1`: Video only
-    - `2`: Video + Audio
-    - `3`: Video + SRT
-    - `4`: Video + Audio + SRT
-  - `callback_url`: (Optional) URL to receive a POST request when the job is done.
-  - `transcribe_lang`: ISO code for language (e.g., `id`, `en`).
-  - `include_subs`: Set to `true` to download YouTube's original subtitles.
+### 2. Check Channel (Cek Video Baru)
 
-### **GET /status/{job_id}**
+Endpoint: `POST /check_channel`
 
-- **Response Example (Done)**:
+Memeriksa video terbaru di channel dan melihat status subtitle-nya.
+
 ```json
 {
-  "status": "done",
-  "progress": "100",
-  "video_duration": 212,
-  "audio_duration": 212,
-  "video_quality": "1080p",
-  "video_fps": "30",
-  "audio_quality": "128kbps",
-  "db_id": "your-internal-database-id",
-  "video_file": "https://minio.com/bucket/video.mp4",
-  "audio_file": "https://minio.com/bucket/audio.mp3",
-  "transcript_file": "https://minio.com/bucket/transcript.srt"
+  "channel_url": "https://www.youtube.com/channel/CHANNEL_ID",
+  "limit": 5,
+  "track": false, // Set true untuk otomatis download video baru
+  "include_subs": true // Parameter untuk worker jika track=true
 }
 ```
 
-### **Callback Webhook**
+**Contoh Response:**
+Perhatikan field `has_subtitles` yang menunjukkan apakah video tersebut memiliki subtitle di YouTube.
 
-If a `callback_url` is provided, the worker will send a POST request upon completion (success or error). The body will contain the final job data, including `job_id` and excluding the `heartbeat` field.
-
-**Callback Payload Example**:
 ```json
 {
-  "job_id": "abc-123",
-  "db_id": "your-internal-database-id",
-  "status": "done",
-  "progress": "100",
-  "video_duration": 212,
-  "audio_duration": 212,
-  "video_quality": "1080p",
-  "video_fps": "30",
-  "audio_quality": "128kbps",
-  "video_file": "https://minio.com/bucket/video.mp4",
-  "audio_file": "https://minio.com/bucket/audio.mp3",
-  "transcript_file": "https://minio.com/bucket/transcript.srt"
+  "new_count": 1,
+  "video_urls": [
+    {
+      "url": "https://www.youtube.com/watch?v=...",
+      "title": "Judul Video",
+      "upload_date": "20240101",
+      "has_subtitles": true, // true jika ada subtitle manual/auto di YouTube
+      "duration": 1250
+    }
+  ]
 }
 ```
 
----
+## Menjalankan Worker
 
-## Technical Structure
+Worker bertugas memproses antrian dari Redis.
 
-- `app.py`: FastAPI endpoints.
-- `worker.py`: Background worker consuming the Redis queue.
-- `Dockerfile` & `docker-compose.yaml`: Containerized deployment.
+```bash
+python worker.py
+```
 
-## Installation
-
-1. Copy `.env.example` to `.env` and configure your credentials.
-2. Run `docker-compose up --build`.
-
----
-For more details, see `app.py` and `worker.py`.
-
-{
-  "job_id": "9e2a1a19-6d5b-40e6-bbdf-67df292ab753",
-  "db_id": "154",
-  "status": "done",
-  "progress": "100",
-  "video_duration": "394",
-  "audio_duration": "394",
-  "video_quality": "4k",
-  "video_fps": "60",
-  "audio_quality": "95kbps",
-  "video_file": "http://minio:9000/videos/9e2a1a19-6d5b-40e6-bbdf-67df292ab753.mp4",
-  "audio_file": "http://minio:9000/videos/9e2a1a19-6d5b-40e6-bbdf-67df292ab753.mp3",
-  "transcript_file": "http://minio:9000/videos/9e2a1a19-6d5b-40e6-bbdf-67df292ab753.srt",
-  "subtitles_file": "{}",
-  "public_video": "http://minio:9000/videos/9e2a1a19-6d5b-40e6-bbdf-67df292ab753.mp4",
-  "public_audio": "http://minio:9000/videos/9e2a1a19-6d5b-40e6-bbdf-67df292ab753.mp3",
-  "public_transcript": "http://minio:9000/videos/9e2a1a19-6d5b-40e6-bbdf-67df292ab753.srt",
-  "public_subtitles": "{}",
-  "url": "https://www.youtube.com/watch?v=tf0MLZJGUbQ",
-  "callback_url": "http://n8n:5678/webhook/61b2d375-c9b9-4e3f-baae-1ff67809eff9",
-  "transcribe": "true",
-  "transcribe_lang": "id",
-  "storage": "minio"
-}
-
-{
-  "job_id": "734a4b36-0a23-4b9c-ad90-2f2585ee7b7d",
-  "db_id": "157",
-  "status": "error",
-  "progress": "0",
-  "error": "Failed after 3 attempts: Command '['yt-dlp', '--cookies', '/data/cookies/cookies.txt', '--js-runtimes', 'node', '--remote-components', 'ejs:github', '--force-ipv4', '--geo-bypass', '-f', 'bv*+ba/b', '--merge-output-format', 'mp4', '-o
+Worker mendukung multiprocessing (diatur via `WORKER_CONCURRENCY`) dan memiliki mekanisme retry otomatis jika download gagal.

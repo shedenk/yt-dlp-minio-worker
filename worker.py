@@ -62,6 +62,7 @@ def get_redis_client(url: str):
     # Mask password for logging
     masked_url = url
     pwd_len = 0
+    client = None
     if "://" in url and "@" in url:
         try:
             auth_part = url.split("://")[1].rsplit("@", 1)[0]
@@ -451,7 +452,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             else:
                 print(f"[WARN] Cookies file NOT FOUND at {COOKIES_PATH}")
         
-        meta_cmd = ["yt-dlp", "--dump-json", "--flat-playlist", "--", data["url"]]
+        meta_cmd = ["yt-dlp", "--dump-json", "--flat-playlist", "--no-input", "--socket-timeout", "30", "--", data["url"]]
         if COOKIES_PATH and os.path.exists(COOKIES_PATH):
             meta_cmd.insert(1, "--cookies")
             meta_cmd.insert(2, COOKIES_PATH)
@@ -498,6 +499,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         local_file = f"{DOWNLOAD_DIR}/{filename}.{audio_format}"
         cmd = [
             "yt-dlp",
+            "--no-input", "--socket-timeout", "30",
             "--js-runtimes", "node",
             "--remote-components", "ejs:github",
             "--force-ipv4",
@@ -516,6 +518,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         audio_file = f"{DOWNLOAD_DIR}/{filename}.{audio_format}"
         video_cmd = [
             "yt-dlp",
+            "--no-input", "--socket-timeout", "30",
             "--js-runtimes", "node",
             "--remote-components", "ejs:github",
             "--force-ipv4",
@@ -532,6 +535,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         local_file = f"{DOWNLOAD_DIR}/{filename}.mp4"
         cmd = [
             "yt-dlp",
+            "--no-input", "--socket-timeout", "30",
             "--js-runtimes", "node",
             "--remote-components", "ejs:github",
             "--force-ipv4",
@@ -580,7 +584,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         except Exception:
             # fallback: try yt-dlp audio extraction if ffmpeg fails
             fallback_cmd = [
-                "yt-dlp", "-x", "--audio-format", audio_format, "-o", outtmpl, "--", data["url"]
+                "yt-dlp", "--no-input", "--socket-timeout", "30", "-x", "--audio-format", audio_format, "-o", outtmpl, "--", data["url"]
             ]
             if COOKIES_PATH and os.path.exists(COOKIES_PATH):
                 fallback_cmd.insert(1, "--cookies")
@@ -714,7 +718,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
                             continue
                             
                         # If "all" was requested, only upload priority languages to save space
-                        if sub_langs_requested == "all":
+                        if sub_langs == "all":
                             lang_part = f.replace(filename + ".", "").replace(".srt", "")
                             if lang_part not in priority_langs:
                                 # Still keep locally for the status but don't upload to MinIO

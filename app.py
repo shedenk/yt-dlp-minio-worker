@@ -14,6 +14,7 @@ def get_redis_client(url: str):
     # Mask password for logging
     masked_url = url
     pwd_len = 0
+    client = None
     if "@" in url:
         try:
             auth_part, host_part = url.split("://")[1].split("@")
@@ -59,35 +60,17 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 class DownloadReq(BaseModel):
     url: str
-    format: str | None = None
-    media: str | None = "video"  # "video", "audio", or "both" (video + audio)
-    audio_format: str | None = "mp3"  # when media==audio or both
-    transcribe: bool | None = True
-    include_subs: bool | None = False
-    sub_langs: str | None = "all"
-    transcribe_lang: str | None = None
-    transcribe_prompt: str | None = None
-    download_option: int | None = None  # 1: video, 2: video+audio, 3: video+srt, 4: video+audio+srt
+    video: bool = True
+    audio: bool = False
+    transcribe: bool = False
     callback_url: str | None = None
     db_id: str | None = None
 
 
 class ChannelCheckReq(BaseModel):
     channel_url: str
-    media: str | None = "video"
-    audio_format: str | None = "mp3"
     limit: int | None = 1
     track: bool | None = False  # set to True to enqueue videos for download
-    wait: bool | None = False
-    wait_timeout: int | None = 60
-    transcribe: bool | None = True
-    include_subs: bool | None = False
-    sub_langs: str | None = "all"
-    transcribe_lang: str | None = None
-    transcribe_prompt: str | None = None
-    download_option: int | None = None # 1: video, 2: video+audio, 3: video+srt, 4: video+audio+srt
-    callback_url: str | None = None
-    db_id: str | None = None
 
 
 def channel_key(url: str) -> str:
@@ -106,6 +89,8 @@ def run_yt_dl_flat(channel_url: str):
         "yt-dlp",
         "--flat-playlist",
         "--dump-json",
+        "--no-input",
+        "--socket-timeout", "15",
         "--",
         channel_url,
     ]
@@ -121,6 +106,30 @@ def run_yt_dl_flat(channel_url: str):
             yield json.loads(line)
         except Exception:
             continue
+
+def check_video_has_subtitles(url: str) -> bool:
+    cmd = [
+        "yt-dlp",
+        "--dump-json",
+        "--no-playlist",
+        "--no-input",
+        "--socket-timeout", "15",
+        "--",
+        url,
+    ]
+    if COOKIES_PATH and os.path.exists(COOKIES_PATH):
+        cmd.insert(1, "--cookies")
+        cmd.insert(2, COOKIES_PATH)
+        
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout, _ = proc.communicate()
+        if proc.returncode == 0 and stdout:
+            info = json.loads(stdout)
+            return bool(info.get("subtitles") or info.get("automatic_captions"))
+    except Exception as e:
+        print(f"[WARN] Error checking subtitles for {url}: {e}")
+    return False
 
 @app.get("/health")
 def health():
@@ -196,30 +205,27 @@ def enqueue(request: Request, req: DownloadReq):
 
     job_id = str(uuid.uuid4())
 
-    # Map download_option if provided
-    media = req.media or "video"
-    transcribe = req.transcribe
-    if req.download_option == 1:
-        media, transcribe = "video", False
-    elif req.download_option == 2:
-        media, transcribe = "both", False
-    elif req.download_option == 3:
-        media, transcribe = "video", True
-    elif req.download_option == 4:
-        media, transcribe = "both", True
+    # Determine media type based on video/audio flags
+    media = "video"
+    if req.video and req.audio:
+        media = "both"
+    elif req.audio:
+        media = "audio"
+    elif req.video:
+        media = "video"
 
     r.hset(f"job:{job_id}", mapping={
         "status": "queued",
         "url": req.url,
         "filename": job_id,
-        "format": req.format or "",
+        "format": "",
         "media": media,
-        "audio_format": req.audio_format or "wav",
-        "transcribe": "true" if transcribe else "false",
-        "include_subs": "true" if req.include_subs else "false",
-        "sub_langs": req.sub_langs or "all",
-        "transcribe_lang": req.transcribe_lang or "",
-        "transcribe_prompt": req.transcribe_prompt or "",
+        "audio_format": "mp3" if req.audio else "wav",
+        "transcribe": "true" if req.transcribe else "false",
+        "include_subs": "true",
+        "sub_langs": "all",
+        "transcribe_lang": "id" if req.transcribe else "",
+        "transcribe_prompt": "",
         "callback_url": req.callback_url or "",
         "db_id": req.db_id or ""
     })
@@ -246,11 +252,8 @@ def get_status(job_id: str):
 @app.post("/check_channel")
 @limiter.limit("5/minute")
 def check_channel(request: Request, req: ChannelCheckReq):
-    import time
-
     
     seen = channel_key(req.channel_url)
-    new_jobs = []
     new_urls = []
 
     for item in run_yt_dl_flat(req.channel_url):
@@ -282,77 +285,19 @@ def check_channel(request: Request, req: ChannelCheckReq):
 
         upload_date = item.get("upload_date") or item.get("timestamp")
         title = item.get("title") or ""
+
+        # Check if video has subtitles
+        has_subtitles = check_video_has_subtitles(video_url)
         
         # add to results regardless of tracking
-        new_urls.append({"url": video_url, "upload_date": upload_date, "title": title})
+        new_urls.append({"url": video_url, "upload_date": upload_date, "title": title, "has_subtitles": has_subtitles, "duration": duration})
 
         # only enqueue if track=True
         if req.track:
             r.sadd(seen, vid)
-            job_id = str(uuid.uuid4())
-            
-            # Map download_option if provided
-            media = req.media or "video"
-            transcribe = req.transcribe
-            if req.download_option == 1:
-                media, transcribe = "video", False
-            elif req.download_option == 2:
-                media, transcribe = "both", False
-            elif req.download_option == 3:
-                media, transcribe = "video", True
-            elif req.download_option == 4:
-                media, transcribe = "both", True
-
-            mapping = {
-                "status": "queued",
-                "url": video_url,
-                "filename": vid,
-                "format": "",
-                "media": media,
-                "audio_format": req.audio_format or "wav",
-                "transcribe": "true" if transcribe else "false",
-                "include_subs": "true" if req.include_subs else "false",
-                "sub_langs": req.sub_langs or "all",
-                "transcribe_lang": req.transcribe_lang or "",
-                "transcribe_prompt": req.transcribe_prompt or "",
-                "callback_url": req.callback_url or "",
-                "db_id": req.db_id or "",
-                "upload_date": upload_date,
-                "title": title,
-            }
-            # remove None values and stringify everything for Redis
-            clean_mapping = {k: str(v) for k, v in mapping.items() if v is not None}
-            r.hset(f"job:{job_id}", mapping=clean_mapping)
-            r.lpush("yt_queue", job_id)
-            new_jobs.append(job_id)
 
         # stop when we've collected the requested number of videos
         if req.limit and len(new_urls) >= int(req.limit):
             break
 
-    result = {"new_count": len(new_urls), "job_ids": new_jobs, "video_urls": new_urls}
-
-    if req.track and req.wait and new_jobs:
-        # poll job statuses until done or timeout
-        timeout = int(req.wait_timeout or 60)
-        end = time.time() + timeout
-        statuses = {}
-        while time.time() < end:
-            all_done = True
-            for jid in new_jobs:
-                data = r.hgetall(f"job:{jid}") or {}
-                statuses[jid] = data
-                st = data.get("status")
-                if st not in ("done", "error"):
-                    all_done = False
-            if all_done:
-                break
-            time.sleep(1)
-
-        # final fetch
-        for jid in new_jobs:
-            statuses[jid] = r.hgetall(f"job:{jid}") or {}
-
-        result["job_statuses"] = statuses
-
-    return result
+    return {"new_count": len(new_urls), "video_urls": new_urls}
