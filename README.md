@@ -73,9 +73,15 @@ uvicorn app:app --host 0.0.0.0 --port 8000
 - `url` (string, required): URL video YouTube
 - `video` (boolean, default: true): Download video dalam format MP4
 - `audio` (boolean, default: false): Download audio dalam format MP3
-- `transcribe` (boolean, default: false): Generate transkripsi menggunakan Whisper
+- `transcribe` (boolean, default: false): **Generate transkripsi menggunakan Whisper AI ke bahasa Indonesia** (bukan download subtitle dari YouTube)
 - `callback_url` (string, optional): URL webhook untuk menerima notifikasi saat job selesai
 - `db_id` (string, optional): ID custom untuk tracking di database Anda
+
+**Catatan Penting:**
+- Endpoint ini **TIDAK** download subtitle dari YouTube
+- Jika `transcribe=true`, sistem menggunakan **Whisper AI** untuk membuat transkripsi dari audio
+- Transkripsi dalam **bahasa Indonesia** dan format **SRT** (dengan timestamp)
+- File transkripsi di-upload ke MinIO, URL tersedia di field `transcript_file`
 
 **Response:**
 

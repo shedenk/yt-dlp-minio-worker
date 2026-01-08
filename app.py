@@ -318,8 +318,8 @@ def enqueue(request: Request, req: DownloadReq):
         "media": media,
         "audio_format": "mp3" if req.audio else "wav",
         "transcribe": "true" if req.transcribe else "false",
-        "include_subs": "true",
-        "sub_langs": "all",
+        "include_subs": "false",  # Don't download YouTube subtitles for /enqueue
+        "sub_langs": "",
         "transcribe_lang": "id" if req.transcribe else "",
         "transcribe_prompt": "",
         "callback_url": req.callback_url or "",
