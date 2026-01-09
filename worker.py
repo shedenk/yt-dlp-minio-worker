@@ -325,7 +325,9 @@ def _upload_file_to_minio(file_path: str, bucket_name: str) -> str:
     try:
         obj_name = os.path.basename(file_path)
         minio_client.fput_object(bucket_name, obj_name, file_path)
-        return f"{MINIO_PUBLIC_BASE_URL}/{obj_name}" if MINIO_PUBLIC_BASE_URL else ""
+        url = f"{MINIO_PUBLIC_BASE_URL}/{obj_name}" if MINIO_PUBLIC_BASE_URL else ""
+        print(f"[INFO] Uploaded {obj_name} to MinIO: {url}")
+        return url
     except Exception as e:
         print(f"[WARN] Upload to MinIO failed for {file_path}: {e}")
         return ""
@@ -604,6 +606,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
                 obj_name_v = os.path.basename(video_file)
                 minio_client.fput_object(MINIO_BUCKET, obj_name_v, video_file)
                 public_video = f"{MINIO_PUBLIC_BASE_URL}/{obj_name_v}" if MINIO_PUBLIC_BASE_URL else ""
+                print(f"[INFO] Uploaded video {obj_name_v} to MinIO: {public_video}")
             except Exception as e:
                 print(f"[WARN] upload video to minio failed: {e}")
 
@@ -611,6 +614,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
                 obj_name_a = os.path.basename(audio_file)
                 minio_client.fput_object(MINIO_BUCKET, obj_name_a, audio_file)
                 public_audio = f"{MINIO_PUBLIC_BASE_URL}/{obj_name_a}" if MINIO_PUBLIC_BASE_URL else ""
+                print(f"[INFO] Uploaded audio {obj_name_a} to MinIO: {public_audio}")
             except Exception as e:
                 print(f"[WARN] upload audio to minio failed: {e}")
 
@@ -637,6 +641,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
                             try:
                                 minio_client.fput_object(MINIO_BUCKET, f, local_sub_path)
                                 public_sub_url = f"{MINIO_PUBLIC_BASE_URL}/{f}" if MINIO_PUBLIC_BASE_URL else ""
+                                print(f"[INFO] Uploaded subtitle {f} to MinIO: {public_sub_url}")
                             except Exception as e:
                                 print(f"[WARN] upload sub {f} failed: {e}")
                         
@@ -666,12 +671,13 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "video_file": public_video,
             "audio_file": public_audio,
             "transcript_file": public_transcript,
-            "duration": duration,
+            # "duration" removed as redundant
             "video_duration": duration,
             "audio_duration": duration,
             "video_quality": video_quality,
             "video_fps": video_fps,
-            "audio_quality": audio_quality
+            "audio_quality": audio_quality,
+            "subtitles": json.dumps(subtitles_map)
         })
 
         if AUTO_DELETE_LOCAL:
@@ -701,6 +707,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
                 obj_name = os.path.basename(local_file)
                 minio_client.fput_object(MINIO_BUCKET, obj_name, local_file)
                 public_url = f"{MINIO_PUBLIC_BASE_URL}/{obj_name}" if MINIO_PUBLIC_BASE_URL else ""
+                print(f"[INFO] Uploaded {obj_name} to MinIO: {public_url}")
             except Exception as e:
                 print(f"[WARN] upload to minio failed: {e}")
 
@@ -739,6 +746,7 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
                             try:
                                 minio_client.fput_object(MINIO_BUCKET, f, local_sub_path)
                                 public_sub_url = f"{MINIO_PUBLIC_BASE_URL}/{f}" if MINIO_PUBLIC_BASE_URL else ""
+                                print(f"[INFO] Uploaded subtitle {f} to MinIO: {public_sub_url}")
                             except Exception as e:
                                 print(f"[WARN] upload sub {f} failed: {e}")
                         
@@ -786,12 +794,12 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
             "video_file": public_url if media == "video" else "",
             "audio_file": public_url if media == "audio" else "",
             "transcript_file": public_transcript,
-            "duration": duration,
+            # "duration" removed as redundant
             "video_duration": duration if media == "video" else "0",
             "audio_duration": duration if media == "audio" else "0",
-            "video_quality": video_quality if media == "video" else "",
             "video_fps": video_fps if media == "video" else "",
-            "audio_quality": audio_quality if media == "audio" else ""
+            "audio_quality": audio_quality if media == "audio" else "",
+            "subtitles": json.dumps(subtitles_map)
         })
 
         if AUTO_DELETE_LOCAL:

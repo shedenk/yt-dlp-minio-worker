@@ -336,12 +336,13 @@ def get_status(job_id: str):
     if not data:
         raise HTTPException(404, "job not found")
     
-    # Filter out internal/redundant fields (as per user request)
-    # Note: duration might be useful so I'll keep it if it's there
-    for field in ["heartbeat", "storage", "public_video", "public_audio", "public_transcript", "public_subtitles", "subtitles_file"]:
-        if field in data:
-            del data[field]
-            
+    # Parse 'subtitles' JSON string back to object if present
+    if "subtitles" in data and data["subtitles"]:
+        try:
+            data["subtitles"] = json.loads(data["subtitles"])
+        except Exception:
+            pass  # keep as string if parse fails
+
     return data
 
 
