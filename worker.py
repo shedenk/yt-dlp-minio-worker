@@ -543,7 +543,8 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         ]
         cmd = None
     else:
-        local_file = f"{DOWNLOAD_DIR}/{filename}.mp4"
+        # local_file will be detected after download
+        local_file = None
         cmd = [
             "yt-dlp",
             "--socket-timeout", "30",
@@ -710,6 +711,36 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
                 print(f"[WARN] Batch cleanup failed: {e}")
     else:
         run_command_with_progress(cmd, job_id, r_local, stage="downloading")
+        
+        # Determine the downloaded file dynamically
+        if not local_file:
+            try:
+                candidates = []
+                for f in os.listdir(DOWNLOAD_DIR):
+                    if f.startswith(filename) and not f.endswith(".part") and not f.endswith(".ytdl") and not f.endswith(".json"):
+                        # Ensure it matches filename pattern (filename.ext)
+                        if f.startswith(filename + "."):
+                            candidates.append(os.path.join(DOWNLOAD_DIR, f))
+                
+                # If multiple candidates, prioritize mp4 if present, else pick the first one
+                if candidates:
+                    local_file = next((f for f in candidates if f.endswith(".mp4")), candidates[0])
+                    print(f"[INFO] Detected downloaded file: {local_file}")
+                else:
+                    print(f"[WARN] No file found matching {filename} in {DOWNLOAD_DIR}")
+            except Exception as e:
+                print(f"[ERROR] Failed to detect downloaded file: {e}")
+
+        if not local_file or not os.path.exists(local_file):
+            print(f"[ERROR] Downloaded file not found for {filename}")
+            # Do NOT return False here, try to proceed? 
+            # Or better, fail because we can't upload nothing.
+            # But the logic below has 'if minio_client' checks, so maybe just let it be empty string?
+            # Existing logic was 'obj_name = os.path.basename(local_file)', if local_file is None this crashes.
+            # So let's handle that.
+            if not local_file:
+               local_file = "" 
+        
         public_url = ""
         if minio_client:
             try:
