@@ -106,7 +106,13 @@ def run_yt_dl_flat(channel_url: str):
         except Exception:
             continue
 
-def check_video_has_subtitles(url: str) -> bool:
+def get_video_details(url: str) -> dict:
+    details = {
+        "has_subtitles": False,
+        "upload_date": None,
+        "title": None,
+        "duration": 0
+    }
     cmd = [
         "yt-dlp",
         "--dump-json",
@@ -124,10 +130,13 @@ def check_video_has_subtitles(url: str) -> bool:
         stdout, _ = proc.communicate()
         if proc.returncode == 0 and stdout:
             info = json.loads(stdout)
-            return bool(info.get("subtitles") or info.get("automatic_captions"))
+            details["has_subtitles"] = bool(info.get("subtitles") or info.get("automatic_captions"))
+            details["upload_date"] = info.get("upload_date")
+            details["title"] = info.get("title")
+            details["duration"] = info.get("duration") or 0
     except Exception as e:
-        print(f"[WARN] Error checking subtitles for {url}: {e}")
-    return False
+        print(f"[WARN] Error checking details for {url}: {e}")
+    return details
 
 def download_subtitle(video_url: str, video_id: str) -> str:
     """Download Indonesian subtitle for a video and upload to MinIO.
@@ -384,10 +393,13 @@ def check_channel(request: Request, req: ChannelCheckReq):
             continue
 
         upload_date = item.get("upload_date") or item.get("timestamp")
-        title = item.get("title") or ""
-
-        # Check if video has subtitles
-        has_subtitles = check_video_has_subtitles(video_url)
+        # Get video details (subtitles, upload_date, etc)
+        details = get_video_details(video_url)
+        has_subtitles = details["has_subtitles"]
+        
+        # Use details if missing from flat-playlist
+        if not upload_date:
+            upload_date = details["upload_date"]
         
         # Download subtitle if available
         subtitle_url = ""
@@ -398,10 +410,10 @@ def check_channel(request: Request, req: ChannelCheckReq):
         new_urls.append({
             "url": video_url, 
             "upload_date": upload_date, 
-            "title": title, 
+            "title": title or details["title"], 
             "has_subtitles": has_subtitles, 
             "subtitle_url": subtitle_url,
-            "duration": duration
+            "duration": duration or details["duration"]
         })
 
         # only enqueue if track=True

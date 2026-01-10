@@ -55,7 +55,13 @@ def run_yt_dl_flat(channel_url: str):
             continue
         yield obj
 
-def check_video_has_subtitles(url: str) -> bool:
+def get_video_details(url: str) -> dict:
+    details = {
+        "has_subtitles": False,
+        "upload_date": None,
+        "title": None,
+        "duration": 0
+    }
     cmd = [
         "yt-dlp",
         "--dump-json",
@@ -73,10 +79,13 @@ def check_video_has_subtitles(url: str) -> bool:
         stdout, _ = proc.communicate()
         if proc.returncode == 0 and stdout:
             info = json.loads(stdout)
-            return bool(info.get("subtitles") or info.get("automatic_captions"))
+            details["has_subtitles"] = bool(info.get("subtitles") or info.get("automatic_captions"))
+            details["upload_date"] = info.get("upload_date")
+            details["title"] = info.get("title")
+            details["duration"] = info.get("duration") or 0
     except Exception as e:
-        print(f"[WARN] Error checking subtitles for {url}: {e}", file=sys.stderr)
-    return False
+        print(f"[WARN] Error checking details for {url}: {e}", file=sys.stderr)
+    return details
 
 def process_video(video_obj, seen_set, do_track=True):
     # yt-dlp flat entries usually contain 'id' and 'title'
@@ -108,15 +117,25 @@ def process_video(video_obj, seen_set, do_track=True):
     title = video_obj.get('title') or ""
     duration = video_obj.get('duration')
 
+    # Get details
+    details = get_video_details(video_url)
+    has_subtitles = details["has_subtitles"]
+    
+    if not upload_date:
+        upload_date = details["upload_date"]
+
     if do_track:
         # mark seen
         r.sadd(seen_set, vid)
 
-    # Check subtitles
-    has_subtitles = check_video_has_subtitles(video_url)
-
     # just report what was found
-    return {"url": video_url, "upload_date": upload_date, "title": title, "has_subtitles": has_subtitles, "duration": duration}
+    return {
+        "url": video_url, 
+        "upload_date": upload_date, 
+        "title": title or details["title"], 
+        "has_subtitles": has_subtitles, 
+        "duration": duration or details["duration"]
+    }
 
 def main():
     p = argparse.ArgumentParser(description="Check a YouTube channel for new videos (flat-playlist).")

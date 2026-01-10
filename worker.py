@@ -406,9 +406,10 @@ def process_single_job(job_id: str) -> bool:
             else:
                 # Final attempt failed or fatal error
                 try:
+                try:
                     r_local.hset(f"job:{job_id}", mapping={
-                        "status": "error",
-                        "error": f"Failed: {error_msg}" if is_fatal else f"Failed after {MAX_RETRIES} attempts: {error_msg}"
+                        "status": "skipped" if is_fatal else "error",
+                        "error": f"Skipped: {error_msg}" if is_fatal else f"Failed after {MAX_RETRIES} attempts: {error_msg}"
                     })
                 except Exception:
                     pass
