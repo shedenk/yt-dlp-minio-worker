@@ -393,6 +393,7 @@ def check_channel(request: Request, req: ChannelCheckReq):
             continue
 
         upload_date = item.get("upload_date") or item.get("timestamp")
+        title = item.get("title") or ""
         # Get video details (subtitles, upload_date, etc)
         details = get_video_details(video_url)
         has_subtitles = details["has_subtitles"]
