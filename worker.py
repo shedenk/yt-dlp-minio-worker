@@ -394,7 +394,8 @@ def process_single_job(job_id: str) -> bool:
                 "Video is an upcoming live stream",
                 "Video is a live stream",
                 "Video is a YouTube Short",
-                "is less than 15 minutes"
+                "is less than 15 minutes",
+                "is not a valid URL"
             ]
             is_fatal = any(err in error_msg for err in fatal_errors)
             
@@ -429,6 +430,14 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         print(f"[ERROR] Job {job_id} not found in Redis")
         return False
     print(f"[DEBUG] Job data: {data}")
+    
+    if not data.get("url") or not data["url"].strip():
+        print(f"[ERROR] Job {job_id} has empty URL")
+        r_local.hset(f"job:{job_id}", mapping={
+            "status": "error",
+            "error": "Failed: URL is empty"
+        })
+        return False
     
     # Initialize progress
     r_local.hset(f"job:{job_id}", "progress", "0")

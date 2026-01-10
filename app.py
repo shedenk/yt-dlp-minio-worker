@@ -296,6 +296,9 @@ def list_jobs(limit: int = 20):
 @limiter.limit("10/minute")
 def enqueue(request: Request, req: DownloadReq):
     # Reject playlist URLs and Shorts to prevent worker overload
+    if not req.url or not req.url.strip():
+        raise HTTPException(status_code=400, detail="URL cannot be empty.")
+
     if "list=" in req.url or "/playlist" in req.url:
         raise HTTPException(status_code=400, detail="Playlist URLs are not allowed. Please provide a single video URL.")
 
