@@ -1,6 +1,6 @@
 fastapi
 uvicorn[standard]
-yt-dlp
+yt-dlp>=2025.2.5  # Will be upgraded to nightly in Dockerfile
 redis
 minio
 slowapi

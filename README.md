@@ -387,3 +387,4 @@ Pastikan file cookies sudah ada di path yang ditentukan di `COOKIES_PATH`.
 ## License
 
 MIT License
+mc anonymous set download local/tmp

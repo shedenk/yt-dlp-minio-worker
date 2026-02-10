@@ -395,7 +395,9 @@ def process_single_job(job_id: str) -> bool:
                 "Video is a live stream",
                 "Video is a YouTube Short",
                 "is less than 15 minutes",
-                "is not a valid URL"
+                "is not a valid URL",
+                "HTTP Error 403: Forbidden",
+                "n challenge solving failed"
             ]
             is_fatal = any(err in error_msg for err in fatal_errors)
             
@@ -511,9 +513,9 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         cmd = [
             "yt-dlp",
             "--socket-timeout", "30",
-            "--js-runtimes", "node",
-            "--remote-components", "ejs:github",
-            "--force-ipv4",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "--extractor-args", "youtube:player_client=android,web",
+            "--sleep-requests", "1",
             "--geo-bypass",
             # "--no-progress", # removed to allow parsing
             "-f", "bestaudio/best",
@@ -530,9 +532,9 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         video_cmd = [
             "yt-dlp",
             "--socket-timeout", "30",
-            "--js-runtimes", "node",
-            "--remote-components", "ejs:github",
-            "--force-ipv4",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "--extractor-args", "youtube:player_client=android,web",
+            "--sleep-requests", "1",
             "--geo-bypass",
             # "--no-progress", # removed to allow parsing
             "-f", data.get("format") or "bv*+ba/b",
@@ -548,9 +550,9 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         cmd = [
             "yt-dlp",
             "--socket-timeout", "30",
-            "--js-runtimes", "node",
-            "--remote-components", "ejs:github",
-            "--force-ipv4",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "--extractor-args", "youtube:player_client=android,web",
+            "--sleep-requests", "1",
             "--geo-bypass",
             # "--no-progress", # removed to allow parsing
             "-f", data.get("format") or "bv*+ba/b",
@@ -602,7 +604,12 @@ def _execute_download(job_id: str, r_local: redis.Redis) -> bool:
         except Exception:
             # fallback: try yt-dlp audio extraction if ffmpeg fails
             fallback_cmd = [
-                "yt-dlp", "--socket-timeout", "30", "-x", "--audio-format", audio_format, "-o", outtmpl, "--", data["url"]
+                "yt-dlp", 
+                "--socket-timeout", "30",
+                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                "--extractor-args", "youtube:player_client=android,web",
+                "--sleep-requests", "1",
+                "-x", "--audio-format", audio_format, "-o", outtmpl, "--", data["url"]
             ]
             if COOKIES_PATH and os.path.exists(COOKIES_PATH):
                 fallback_cmd.insert(1, "--cookies")
