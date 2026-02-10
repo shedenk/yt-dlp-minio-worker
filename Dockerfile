@@ -30,11 +30,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /install /usr/local
 
-# Install Node.js dependencies for yt-dlp n-challenge solving
-RUN npm install -g @yt-dlp/ejs
-
 # Update yt-dlp to absolute latest nightly version for YouTube compatibility
-RUN pip install --no-cache-dir --upgrade --pre yt-dlp
+# Also install yt-dlp-ejs which bundles the EJS challenge solver scripts
+RUN pip install --no-cache-dir --upgrade --pre yt-dlp yt-dlp-ejs
 COPY app.py worker.py cleanup.py ./
 
 RUN echo "*/30 * * * * python /app/cleanup.py >> /var/log/cleanup.log 2>&1" > /etc/cron.d/cleanup \

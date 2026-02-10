@@ -26,26 +26,30 @@ def test_ytdlp_version():
         print(f"❌ Failed to get yt-dlp version: {e}")
         return False
 
-def test_node_dependencies():
-    """Check if @yt-dlp/ejs is installed"""
+def test_ejs_package():
+    """Check if yt-dlp-ejs Python package is installed"""
     print("\n" + "=" * 60)
-    print("Testing Node.js dependencies...")
+    print("Testing yt-dlp-ejs package...")
     print("=" * 60)
     try:
         result = subprocess.run(
-            ["npm", "list", "-g", "@yt-dlp/ejs"],
+            ["pip", "show", "yt-dlp-ejs"],
             capture_output=True,
             text=True,
             timeout=10
         )
-        if "@yt-dlp/ejs" in result.stdout:
-            print("✅ @yt-dlp/ejs is installed")
+        if result.returncode == 0 and "yt-dlp-ejs" in result.stdout:
+            print("✅ yt-dlp-ejs is installed")
+            # Extract version
+            for line in result.stdout.split('\n'):
+                if line.startswith('Version:'):
+                    print(f"   {line}")
             return True
         else:
-            print("❌ @yt-dlp/ejs is NOT installed")
+            print("❌ yt-dlp-ejs is NOT installed")
             return False
     except Exception as e:
-        print(f"❌ Failed to check npm packages: {e}")
+        print(f"❌ Failed to check yt-dlp-ejs package: {e}")
         return False
 
 def test_metadata_extraction(url):
@@ -158,7 +162,7 @@ def main():
     
     # Run tests
     results.append(("yt-dlp version", test_ytdlp_version()))
-    results.append(("Node.js dependencies", test_node_dependencies()))
+    results.append(("yt-dlp-ejs package", test_ejs_package()))
     results.append(("Metadata extraction", test_metadata_extraction(test_url)))
     results.append(("Download simulation", test_download_simulation(test_url)))
     
