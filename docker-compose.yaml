@@ -2,7 +2,7 @@ version: "3.9"
 
 networks:
   internal-net:
-    external: true
+    driver: bridge
 
 services:
   yt-redis:
@@ -37,6 +37,14 @@ services:
       MINIO_PUBLIC_BASE_URL: ${MINIO_PUBLIC_BASE_URL}
       MINIO_SECURE: ${MINIO_SECURE}
 
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 3G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
     volumes:
       - downloads_data:/data/downloads
       - cookies_data:/data/cookies
@@ -50,7 +58,14 @@ services:
     build: .
     container_name: yt-dlp-worker
     restart: unless-stopped
-    mem_limit: 3500m
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 3G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
     environment:
       TZ: Asia/Jakarta
       REDIS_URL: ${REDIS_URL:-redis://yt-redis:6379/0}

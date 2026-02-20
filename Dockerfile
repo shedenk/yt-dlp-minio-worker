@@ -45,6 +45,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 EXPOSE 8080
 CMD ["bash", "-c", "\
+service cron start; \
 rm -rf /data/downloads/* 2>/dev/null; \
 if [ \"$ROLE\" = \"worker\" ]; then \
   echo 'Starting YT-DLP WORKER'; \
