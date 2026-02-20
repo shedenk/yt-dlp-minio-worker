@@ -7,3 +7,4 @@ slowapi
 faster-whisper
 setuptools-rust
 httpx
+
