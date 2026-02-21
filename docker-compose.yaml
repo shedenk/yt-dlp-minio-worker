@@ -14,6 +14,11 @@ services:
     networks:
       - internal-net
     command: redis-server --appendonly no
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
 
   yt-dlp-api:
     build: .
@@ -37,14 +42,6 @@ services:
       MINIO_PUBLIC_BASE_URL: ${MINIO_PUBLIC_BASE_URL}
       MINIO_SECURE: ${MINIO_SECURE}
 
-    deploy:
-      resources:
-        limits:
-          cpus: '4.0'
-          memory: 3G
-        reservations:
-          cpus: '1.0'
-          memory: 1G
     volumes:
       - downloads_data:/data/downloads
       - cookies_data:/data/cookies
@@ -53,19 +50,17 @@ services:
       - internal-net
     depends_on:
       - yt-redis
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "2.0"
 
   yt-dlp-worker:
     build: .
     container_name: yt-dlp-worker
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '4.0'
-          memory: 3G
-        reservations:
-          cpus: '1.0'
-          memory: 1G
+  
     environment:
       TZ: Asia/Jakarta
       REDIS_URL: ${REDIS_URL:-redis://yt-redis:6379/0}
@@ -98,6 +93,11 @@ services:
       - internal-net
     depends_on:
       - yt-redis
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "4.0"
 
 volumes:
   downloads_data:
