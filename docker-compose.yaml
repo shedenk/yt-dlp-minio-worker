@@ -8,14 +8,9 @@ services:
     image: redis:7-alpine
     container_name: yt-dlp-redis
     environment:
-      TZ: Asia/Jakarta
+    TZ: Asia/Jakarta
     restart: unless-stopped
     command: redis-server --appendonly no
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: "1.0"
 
   yt-dlp-api:
     build: .
@@ -26,12 +21,9 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://yt-redis:6379/0}
       ROLE: api
       PYTHONUNBUFFERED: "1"
-
       ENABLE_DOWNLOAD: ${ENABLE_DOWNLOAD:-false}
-
       DOWNLOAD_DIR: /data/downloads
       COOKIES_PATH: /data/cookies/cookies.txt
-
       MINIO_ENDPOINT: ${MINIO_ENDPOINT}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
@@ -47,11 +39,6 @@ services:
       - internal-net
     depends_on:
       - yt-redis
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: "2.0"
 
   yt-dlp-worker:
     build: .
@@ -68,14 +55,11 @@ services:
       MAX_RETRIES: ${MAX_RETRIES:-3}
       JOB_TIMEOUT: ${JOB_TIMEOUT:-14400}
       RETRY_BACKOFF_BASE: ${RETRY_BACKOFF_BASE:-60}
-
       AUTO_DELETE_LOCAL: ${AUTO_DELETE_LOCAL:-true}
       CLEANUP_MAX_AGE: ${CLEANUP_MAX_AGE:-7200}
       MINIO_STRICT: ${MINIO_STRICT:-true}
-
       DOWNLOAD_DIR: /data/downloads
       COOKIES_PATH: /data/cookies/cookies.txt
-
       MINIO_ENDPOINT: ${MINIO_ENDPOINT}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
@@ -90,11 +74,24 @@ services:
       - internal-net
     depends_on:
       - yt-redis
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-          cpus: "4.0"
+
+  cookie-updater:
+    image: alpine:latest
+    container_name: yt-dlp-cookie-updater
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Jakarta
+      COOKIES_URL: ${COOKIES_URL}
+      COOKIES_PATH: /data/cookies/cookies.txt
+    volumes:
+      - cookies_data:/data/cookies
+      - ./update_cookies.sh:/usr/local/bin/update_cookies.sh:ro
+    command: >
+      sh -c "
+      echo '0 * * * * /usr/local/bin/update_cookies.sh' > /etc/crontabs/root &&
+      /usr/local/bin/update_cookies.sh || true &&
+      crond -f -l 2
+      "
 
 volumes:
   downloads_data:

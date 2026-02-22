@@ -374,6 +374,15 @@ Pastikan `REDIS_URL` sudah benar dan Redis service sudah running.
 ### Download gagal dengan error "cookies"
 Pastikan file cookies sudah ada di path yang ditentukan di `COOKIES_PATH`.
 
+### Update Cookies Otomatis
+Sistem mendukung pembaruan file cookies secara otomatis via URL.
+1. Set `COOKIES_URL` di file `.env` dengan URL langsung (raw) ke file cookies Anda.
+2. Service `cookie-updater` akan memeriksa dan mengunduh cookies setiap jam.
+3. Anda juga bisa menjalankan pembaruan manual dengan:
+   ```bash
+   docker-compose run --rm cookie-updater /usr/local/bin/update_cookies.sh
+   ```
+
 ### Transcription sangat lambat
 - Gunakan GPU dengan set `USE_GPU=true`
 - Gunakan model yang lebih kecil (tiny/base) di `WHISPER_MODEL`
