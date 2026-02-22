@@ -88,8 +88,8 @@ services:
       - ./update_cookies.sh:/usr/local/bin/update_cookies.sh:ro
     command: >
       sh -c "
-      echo '0 * * * * /usr/local/bin/update_cookies.sh' > /etc/crontabs/root &&
-      /usr/local/bin/update_cookies.sh || true &&
+      echo '0 * * * * sh /usr/local/bin/update_cookies.sh' > /etc/crontabs/root &&
+      sh /usr/local/bin/update_cookies.sh || true &&
       crond -f -l 2
       "
 

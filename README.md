@@ -380,7 +380,7 @@ Sistem mendukung pembaruan file cookies secara otomatis via URL.
 2. Service `cookie-updater` akan memeriksa dan mengunduh cookies setiap jam.
 3. Anda juga bisa menjalankan pembaruan manual dengan:
    ```bash
-   docker-compose run --rm cookie-updater /usr/local/bin/update_cookies.sh
+   docker-compose run --rm cookie-updater sh /usr/local/bin/update_cookies.sh
    ```
 
 ### Transcription sangat lambat
